@@ -1,0 +1,31 @@
+ <?php 
+
+
+ $customer_name=$_POST['borrower_name'];
+$b_id=$_POST['b_id'];
+$gl_no=$_POST['gl_no'];
+
+$date=$_POST['date'];
+$item_description=$_POST['item_description'];
+
+$net_weight=$_POST['net_weight'];
+
+$loan_amount=$_POST['loan_amount'];
+echo $customer_name;
+echo $gl_no;
+echo $date;
+echo implode(", ", $item_description);
+echo $net_weight;
+echo $loan_amount;
+
+ $br = $emp->findBorrowerByName($customer_name); // Assuming you have a method 'findBorrowerByName' to search by name
+    if ($br) {
+        $row = $br->fetch_assoc();
+        $name = $row['name'];
+echo $name;
+        $b_id = $row['id'];
+    } else {
+        echo "<span class='text-center' style='color:red'>Borrower not found or not applicable for a loan</span>";
+    }
+// }
+   ?>  

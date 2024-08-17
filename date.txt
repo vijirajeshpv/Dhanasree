@@ -1,0 +1,37 @@
+<?php
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['search'])) {
+    $gl_no = $_POST['key'];
+
+    $openingDate = $ml->getOpeningDate($gl_no);
+
+    if ($openingDate !== null) {
+        $closingDate = new DateTime(); // Current date/time
+        $openDate = DateTime::createFromFormat('Y-m-d', $openingDate);
+
+        // Check if the conversion was successful
+        if ($openDate && $closingDate) {
+            // Calculate the difference between $endDate and $startDate
+            $interval = $openDate->diff($closingDate);
+
+            // Get the total number of days from the interval
+            $totalDays = $interval->days;
+
+            // Now you can use $totalDays to get the difference between dates.
+
+            // Assuming $loan_amnt is initialized with the actual loan amount
+            $loan_amnt = 1000; // Replace this with the actual loan amount
+
+            $interest = $loan_amnt * pow(1 + (0.18 / 12), 12 * $totalDays);
+
+            // Calculate the final amount
+            $total = $loan_amnt + $interest;
+
+            echo "Total amount to be paid back: $" . number_format($total, 2);
+        } else {
+            echo "Invalid date format or date string.";
+        }
+    } else {
+        echo "Opening date not found or invalid.";
+    }
+}
+?>
