@@ -51,4 +51,4 @@ RUN chown -R www-data:www-data /var/www/html
 # RUN find /var/www/html -type f -exec chmod u+rw,g+rw,o+r {} +
 
 EXPOSE 80
-EXPOSE 443
+EXPOSE 443 
