@@ -2,12 +2,10 @@
         <footer class="footer">
           <div class="container-fluid clearfix ">
             <span class="float-left footer-name">
-            All rights reserved<a href="#"> Dhanasree Financiers</a> &copy; 2024
+            All rights reserved<a href="#"> Elite Researchers</a> &copy; 2024
             </span>
             <div class="container-fluid clearfix">
-            <span class="float-right footer-name">
-           Developed by Vijayalakshmi
-            </span>
+            
           </div>
           </div>
           

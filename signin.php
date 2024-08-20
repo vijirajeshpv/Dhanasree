@@ -38,7 +38,7 @@ $emp = new Employee();
   <div class="container">
     <form class="form-signin" action="" method="POST">
       <div class="text-center mt-5 mb-4">
-        <img class="mb-2" src="images/je-logo.png" alt="" width="220" height="150">
+        <img class="mb-2" src="images/dhanasreeLogo.png" alt="" width="220" height="150">
 
       </div>
       <div class="text-center mb-4">
@@ -57,40 +57,12 @@ $emp = new Employee();
       </div>
 
       <input class="btn btn-lg btn-info btn-block" type="submit" name="submit" value="Submit">
-      <p class="mt-3 text-uppercase font-weight-bold text-center"><a href="signup.php">Register</a> a new account.</p>
+      
     </form>
 
-    <div class="row">
-      <div class="col-md-8 offset-2">
-         <table class="table table-bordered" style="background:#fff">
-            <tr>
-                <th colspan="2">Branch officer</th>
-                <th colspan="2">Head officer</th>
-                <th colspan="2">Varifier officer</th>
-              </tr>
-              <tr>
-                <tr>
-                  <td>E-mail: </td>
-                  <td>branch@gmail.com</td>
-                  <td>E-mail: </td>
-                  <td>head@gmail.com</td>
-                  <td>E-mail: </td>
-                  <td>varifier@gmail.com</td>
-                </tr>
-                <tr>
-                  <td>Password: </td>
-                  <td>123</td>
-                  <td>Password: </td>
-                  <td>123</td>
-                  <td>Password: </td>
-                  <td>123</td>
-                </tr>
-              </tr>
-          </table>
-      </div>
-      <div class="col-md-12 ">
-      <p class="text-muted text-center">Developed by &copy; <a class="text-dark font-weight-bold" href=>Viji Viswanathan </a> - 2023 </p></div>
-    </div>
-    </div>
+    <?php
+include_once "inc/footer.php";
+?>
   </body>
 </html>
+
