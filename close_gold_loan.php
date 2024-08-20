@@ -118,10 +118,12 @@ if ($openDate === false) {
     }
 
     $loan_amnt = $loan?$loan['loan_amnt']:0;
-    $interest = ceil((($loan_amnt * 0.18) / 365) * $totalDays);
+   // $interest = ceil((($loan_amnt * 0.18) / 365) * $totalDays);
+// Calculate the final amount
+$total =ceil($loan_amnt*pow(1.21,($totalDays/365)));
 
-    // Calculate the final amount
-    $total = ceil($loan_amnt + $interest);
+    // Calculate interest
+   $interest = $total - $loan_amnt;
 }
 else {
        // echo "<span class='text-center' style='color:red'>GL Number not matched </span>";
