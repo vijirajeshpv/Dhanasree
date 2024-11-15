@@ -5,7 +5,7 @@
         <nav class="bg-white sidebar sidebar-offcanvas" id="sidebar">
           <div class="user-info">
            <div class="user-profile-wrap text-center  ">
-           <img class="img-fluid rounded-circle" src="images/face.jpg" alt="">
+           <img class="img-fluid rounded-circle" src="images/user.jpg" alt="">
            </div>
             <p class="name"><?php echo Session::get("name");?></p>
             <p class="designation"><?php echo Session::get("designation");?></p>
@@ -47,7 +47,7 @@
            <!--   <a class="nav-link" data-toggle="collapse" href="" aria-expanded="false" aria-controls="goldloan-pages"> -->
               <a class="nav-link" href="apply_for_gold_loan2.php">
               <i class="fa fa-pencil-square-o" aria-hidden="true"></i>
-                <span class="menu-title">Apply for loan<i class="fa fa-sort-                                down"></i></span>
+                <span class="menu-title">Gold Loan<i class="fa fa-sort-                                down"></i></span>
               </a>
 <div class="collapse" id="goldloan-pages">
                 <ul class="nav flex-column sub-menu">
@@ -55,7 +55,9 @@
                     <a class="nav-link" href="apply_for_gold_loan2.php">Add Gold Loan</a>
                   </li>
                   
- 
+ <li class="nav-item">
+                    <a class="nav-link" href="updategoldloan.php">Update Gold Loan</a>
+                  </li>
 <li class="nav-item">
                     <a class="nav-link" href="deletegoldloan.php">Delete Gold Loan</a>
                   </li>
@@ -67,6 +69,13 @@
             </li>
             
             <?php } ?>
+
+<li class="nav-item">
+              <a class="nav-link" href="generate_pawn_ticket.php">
+              <i class="fa fa-check-square-o" aria-hidden="true"></i>
+                <span class="menu-title">Pawn Ticket</span>
+              </a>
+            </li>
  <li class="nav-item">
               <a class="nav-link" href="loan_between_dates2.php">
               <i class="fa fa-check-square-o" aria-hidden="true"></i>
@@ -74,7 +83,7 @@
               </a>
             </li>
              <li class="nav-item">
-              <a class="nav-link" href="loan_status5.php">
+              <a class="nav-link" href="loan_status3.php">
               <i class="fa fa-check-square-o" aria-hidden="true"></i>
                 <span class="menu-title">Loan Status</span>
               </a>
@@ -83,6 +92,18 @@
               <a class="nav-link" href="close_gold_loan.php">
               <i class="fa fa-window-close-o" aria-hidden="true"></i>
                 <span class="menu-title">Close Gold Loan</span>
+              </a>
+            </li>
+ 	<li class="nav-item">
+              <a class="nav-link" href="stock_register_report.php">
+              <i class="fa fa-check-square-o" aria-hidden="true"></i>
+                <span class="menu-title">Stock Register</span>
+              </a>
+            </li>
+<li class="nav-item">
+              <a class="nav-link" href="stock_register.php">
+              <i class="fa fa-check-square-o" aria-hidden="true"></i>
+                <span class="menu-title">Net Stock </span>
               </a>
             </li>
            <li class="nav-item">
@@ -103,7 +124,13 @@
                 <span class="menu-title">Closing Repledge</span>
               </a>
             </li>
-           
+            <li class="nav-item">
+              <a class="nav-link" href="due_list1.php">
+              <i class="fa fa-window-close-o" aria-hidden="true"></i>
+                <span class="menu-title">Over Due</span>
+              </a>
+            </li>
+
           </ul>
         </nav>
 
