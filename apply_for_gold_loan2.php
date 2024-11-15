@@ -32,9 +32,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_loan_applicatio
                 $mob = isset($row['mobile']) ? $row['mobile'] : '';
             }
         }
-        $date = date("Y-m-d");
-    $date1 = new DateTime($date);
-    $outputDate = $date1->format('d-m-Y');
+      //  $date = date("Y-m-d");
+   // $date1 = new DateTime($date);
+     $outputDate = isset($_POST['date']) ? $_POST['date'] : '';
 
         $item_description = isset($_POST['item_description']) ? $_POST['item_description'] : '';
         $other_item_description = isset($_POST['other_item_description']) ? $_POST['other_item_description'] : '';
@@ -61,11 +61,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_loan_applicatio
         $pdf = new FPDF();
         $pdf->AddPage();
         $pdf->SetFont('Arial', 'B', 22);
-        $pdf->Cell(0, 0, 'Jayalakshmi Enterprises', 0, 1, 'C');
+        $pdf->Cell(0, 0, 'Dhanasree Financiers', 0, 1, 'C');
  	$pdf->SetFont('Arial', 'B', 18);
-        $pdf->Cell(0, 15, 'Manapaady,Thanisserry P.O.,680701', 0, 1, 'C');
+        $pdf->Cell(0, 15, 'Neelankavil Complex,6\26C,Arippalam-680688', 0, 1, 'C');
 	$pdf->SetFont('Arial', 'B', 12);
-        $pdf->Cell(0, 15, 'KML REISTRATION NUMBER:32080302832 ', 0, 1, 'C');
+        $pdf->Cell(0, 15, 'KML REISTRATION NUMBER:32080357361 ', 0, 1, 'C');
 	$pdf->SetFont('Arial', 'B', 14);
         $pdf->Cell(0, 15, 'Pledge Form M (C Rule 14 of KML Act)', 0, 1, 'C');
 
@@ -107,9 +107,9 @@ $pdf->MultiCell(0, 10, $rules);
 $name = " ";
 $b_id = "";
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['search'])) {
-    $date = date("Y-m-d");
-    $date1 = new DateTime($date);
-    $outputDate = $date1->format('d-m-Y');
+    //$date =isset($_POST['date']) ? $_POST['date'] : '';
+    // $date1 = new DateTime($date);
+    $outputDate = isset($_POST['date']) ? $_POST['date'] : '';
     $mobile = $_POST['key'];
     $customer_name = isset($_POST['borrower_name']) ? $_POST['borrower_name'] : '';
     $b_id = isset($_POST['b_id']) ? $_POST['b_id'] : '';
@@ -173,7 +173,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['search'])) {
             <input type="text" name="gl_no" class="form-control">
         </div>
     </div>
-
+ <!-- -->
+    <div class="form-group row">
+        <label for="date" class="text-right col-2 font-weight-bold col-form-label">Date</label>
+        <div class="col-sm-9">
+            <input type="text" name="date" class="form-control">
+        </div>
+    </div>
     <div class="form-group row">
         <label for="item_description" class="text-right col-2 font-weight-bold col-form-label ">Item description</label>
         <div class="col-sm-9">
@@ -228,7 +234,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['search'])) {
 <div class="form-group row">
                 <label for="due_date" class="text-right col-2 font-weight-bold col-form-label">Due Date</label>  
                 <div class="col-sm-9">
-                    <input type="text" name="due_date" class="form-control positive-integer" id="due_date"  onkeyup="calculateEMI()"  readonly required>
+                    <input type="text" name="due_date" class="form-control positive-integer" id="due_date"    >
                 </div>
             </div>
           <hr>
@@ -277,7 +283,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['search'])) {
             document.myform.loan_amount.value=parseFloat(loan_amount);
 		
 		// Get the current date in the format "YYYY-MM-DD"
-var currentDate = new Date();
+/* var currentDate = new Date();
 var year = currentDate.getFullYear();
 var month = (currentDate.getMonth() + 1).toString().padStart(2, '0');
 var day = currentDate.getDate().toString().padStart(2, '0');
@@ -298,7 +304,7 @@ dateObject.setDate(dateObject.getDate() + 365);
 var due_date = dateObject.getDate().toString().padStart(2, '0') + '-' +
               (dateObject.getMonth() + 1).toString().padStart(2, '0') + '-' +
               dateObject.getFullYear();
-document.myform.due_date.value=due_date;
+document.myform.due_date.value=due_date; */
 
 }
 
