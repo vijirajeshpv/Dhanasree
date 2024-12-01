@@ -125,6 +125,24 @@
               </a>
             </li>
             <li class="nav-item">
+              <a class="nav-link" data-toggle="collapse" href="#expenses-pages" aria-expanded="false" aria-controls="expenses-pages">
+              <i class="fa fa-user" aria-hidden="true"></i>
+                <span class="menu-title">Expenses<i class="fa fa-sort-down"></i></span>
+              </a>
+              <div class="collapse" id="expenses-pages">
+                <ul class="nav flex-column sub-menu">
+                  <li class="nav-item">
+                    <a class="nav-link" href="add_expense.php">Add Expenses</a>
+                  </li>
+                  <li class="nav-item">
+                    <a class="nav-link" href="expenses_dashboard.php">View Expenses</a>
+                  </li>
+                  
+                </ul>
+              </div>
+            </li>
+            </li>
+            <li class="nav-item">
               <a class="nav-link" href="due_list1.php">
               <i class="fa fa-window-close-o" aria-hidden="true"></i>
                 <span class="menu-title">Over Due</span>

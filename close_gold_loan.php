@@ -10,7 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['Close'])) {
 
 // Close gold loan if the "Close" button is clicked
 if (isset($_POST['Close'])) {
-  $updated = $ml->closeGoldLoan($_POST['gl_no']);
+  $updated = $ml->closeGoldLoan($_POST['gl_no'], $_POST['interest']);
 
 }
 
