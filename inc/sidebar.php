@@ -148,6 +148,12 @@
                 <span class="menu-title">Over Due</span>
               </a>
             </li>
+            <li class="nav-item">
+              <a class="nav-link" href="balance_sheet.php">
+              <i class="fa fa-window-close-o" aria-hidden="true"></i>
+                <span class="menu-title">Balance Sheet</span>
+              </a>
+            </li>
 
           </ul>
         </nav>
