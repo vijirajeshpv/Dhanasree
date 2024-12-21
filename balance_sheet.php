@@ -16,6 +16,19 @@ $expenseCategories = $balanceSheet->getExpenseCategories($start_date, $end_date)
 $financialSummary = $balanceSheet->calculatePotentialNetIncome($start_date, $end_date);
 ?>
 
+<div class="mb-4">
+    <div class="btn-group">
+        <a href="export_pdf.php?start_date=<?php echo $start_date; ?>&end_date=<?php echo $end_date; ?>" 
+           class="btn btn-danger">
+            <i class="fas fa-file-pdf mr-2"></i>Export PDF
+        </a>
+        <a href="export_excel.php?start_date=<?php echo $start_date; ?>&end_date=<?php echo $end_date; ?>" 
+           class="btn btn-success">
+            <i class="fas fa-file-excel mr-2"></i>Export Excel
+        </a>
+    </div>
+</div>
+
 <div class="container-fluid">
     <div class="card">
         <div class="card-header bg-primary text-white">
