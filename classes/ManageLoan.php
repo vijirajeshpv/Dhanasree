@@ -92,6 +92,31 @@ class ManageLoan
             $inserted = $this->db->insert($query);
 
             if ($inserted) {
+                $gl_no = $this->db->link->insert_id;
+                 // Create accounting entry
+                $accounting = new AccountingIntegration();
+
+                $acc_result = $accounting->postLoanDisbursement(
+                    $gl_no, 
+                    $loan_amount, 
+                    $currentDate, 
+                    $borrower_name
+                );
+
+                // Update the gold loan record with accounting reference
+                if (is_numeric($acc_result)) {
+                    $update_query = "UPDATE tbl_gold_loan 
+                                SET accounting_transaction_id = '$acc_result' 
+                                WHERE gl_no = '$gl_no'";
+                    $this->db->update($update_query);
+                
+                } else {
+                    // Loan created but accounting failed - log this
+                    $msg = "<span class='warning'>Gold loan created but accounting entry failed. Please create manual entry.</span>";
+                    return $msg;
+                }
+                
+
                 // Insert into tbl_gold_stock (Stock Register)
                 $stock_query = "INSERT INTO tbl_stock(`gl_no`,`date`, `gross_weight`, `stone_weight`, `net_weight`, `b_id`) 
                             VALUES('$gl_no','$currentDate', '$gross_weight', '$stone_weight', '$net_weight',  '$b_id')";
@@ -441,14 +466,47 @@ class ManageLoan
     //  Function to update gold loan status to "closed"
     function closeGoldLoan($gl_no, $interest)
     {
+        // Get loan details first
+        $loan_query = "SELECT * FROM tbl_gold_loan WHERE gl_no = '$gl_no' AND status = 0";
+        $loan_result = $this->db->select($loan_query);
+
+        if (!$loan_result) {
+            return false;
+        }
+
+        $loan = $loan_result->fetch_assoc();
+
+        $opening_date = $loan['date'];
+        $closing_date = date('Y-m-d');
+        $days = (strtotime($closing_date) - strtotime($opening_date)) / (60 * 60 * 24);
+        $total_amount = $loan['loan_amnt'] + $interest;
+
         $query = "UPDATE tbl_gold_loan SET interest = '$interest', closing_date = NOW(), status= 1 WHERE gl_no = '$gl_no'";
         $updated = $this->db->update($query);
+         
+        if ($updated) {
+            // Create accounting entry for closure
+            $accounting = new AccountingIntegration();
+            $acc_result = $accounting->postLoanClosure(
+                $gl_no,
+                $total_amount,
+                $loan['loan_amnt'], // principal
+                $interest,
+                $closing_date,
+                $loan['name']
+            );
+            
+            if (is_numeric($acc_result)) {
+                // Update with accounting reference
+                $update_acc = "UPDATE tbl_gold_loan 
+                            SET closing_accounting_id = '$acc_result' 
+                            WHERE gl_no = '$gl_no'";
+                $this->db->update($update_acc);
+            }
+        }
+
         return $updated;
     }
-
-
-
-
 
     //repledge application
     public function applyForRepledge($data, $file)
@@ -485,23 +543,74 @@ class ManageLoan
         $inserted = $this->db->insert($query);
 
         if ($inserted) {
+            // Create accounting entry for repledge
+            $accounting = new AccountingIntegration();
+            $acc_result = $accounting->postRepledgeToBank(
+                $bank_gl_no,
+                $amount_bank,
+                $date,
+                'Bank' // You can pass actual bank name if available
+            );
+            
+            if (is_numeric($acc_result)) {
+                // Update repledge record with accounting reference
+                $update_query = "UPDATE tbl_repledge 
+                            SET accounting_transaction_id = '$acc_result' 
+                            WHERE bank_gl_no = '$bank_gl_no'";
+                $this->db->update($update_query);
+            }
+            else {
+                $msg = "<span class='warning'>Repledge created but accounting entry failed.</span>";
+                return $msg;
+            }
+
             $msg = "<span class='success'>Repledge Application submitted successfully.</span>";
         } else {
             $msg = "<span class='error'>Failed to submit.</span>";
         }
 
         return $msg; // Return the message outside the if-else block
-
-
-
-
     }
 
     //  Function to update repledge status to "closed"
-    function closeRepledge($bank_gl_no)
+    function closeRepledge($bank_gl_no,  $interest_from_form = 0)
     {
-        $query = "UPDATE tbl_repledge SET due_date = NOW(), status= 1 WHERE bank_gl_no = '$bank_gl_no'";
+        // Get repledge details first
+        $query = "SELECT * FROM tbl_repledge WHERE bank_gl_no = '$bank_gl_no' AND Status = 0";
+        $result = $this->db->select($query);
+        
+        if (!$result) {
+            return false;
+        }
+        
+        $repledge = $result->fetch_assoc();
+
+        $interest = $this->fm->validation($interest_from_form);
+
+        $query = "UPDATE tbl_repledge SET due_date = NOW(), 
+        interest = '$interest',
+        status= 1 WHERE bank_gl_no = '$bank_gl_no'";
         $updated = $this->db->update($query);
+
+        if ($updated) {
+            // Create accounting entry
+            $accounting = new AccountingIntegration();
+            $acc_result = $accounting->postRepledgeSettlement(
+                $bank_gl_no,
+                $repledge['amount_bank'], // principal
+                $interest,
+                date('Y-m-d')
+            );
+            
+            if (is_numeric($acc_result)) {
+                // Update with accounting reference if needed
+                $update_acc = "UPDATE tbl_repledge 
+                              SET accounting_transaction_id = '$acc_result' 
+                              WHERE bank_gl_no = '$bank_gl_no'";
+                $this->db->update($update_acc);
+            }
+        }
+
         return $updated;
     }
 
