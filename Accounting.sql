@@ -1,3 +1,5 @@
+ALTER TABLE `tbl_repledge` ADD `id` INT NOT NULL AUTO_INCREMENT FIRST, ADD PRIMARY KEY (`id`);
+
 ALTER TABLE tbl_user ADD PRIMARY KEY (id);
 
 -- Accounting transactions

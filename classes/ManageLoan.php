@@ -2,6 +2,7 @@
 $filepath = realpath(dirname(__FILE__));
 include_once($filepath . "/../libs/CrudOperation.php");
 include_once($filepath . "/../helpers/Format.php");
+include_once($filepath . "/accounting/AccountingIntegration.php");
 
 /**
  * Sample Class for photo uploading, insert data, update data and others.
