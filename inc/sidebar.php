@@ -148,31 +148,31 @@
                 <span class="menu-title">Over Due</span>
               </a>
             </li>
+            
             <li class="nav-item">
-              <a class="nav-link" href="balance_sheet.php">
-              <i class="fa fa-window-close-o" aria-hidden="true"></i>
-                <span class="menu-title">Balance Sheet</span>
+              <a class="nav-link" data-toggle="collapse" href="#accounts-pages" aria-expanded="false" aria-controls="accounts-pages">
+              <i class="fa fa-money" aria-hidden="true"></i>
+                <span class="menu-title">Accounts<i class="fa fa-sort-down"></i></span>
               </a>
+              <div class="collapse" id="accounts-pages">
+                <ul class="nav flex-column sub-menu">
+                  <li class="nav-item">
+                    <a class="nav-link" href="balance_sheet.php">Balance Sheet</a>
+                  </li>
+                  <li class="nav-item">
+                    <a class="nav-link" href="cash_book.php">Cash Book</a>
+                  </li>
+                  <li class="nav-item">
+                    <a class="nav-link" href="trial_balance.php">Trial Balance</a>
+                  </li>
+                </ul>
+              </div>
             </li>
-
-            <li class="nav-item">
-              <a class="nav-link" href="cash_book.php">
-              <i class="fa fa-window-close-o" aria-hidden="true"></i>
-                <span class="menu-title">Cash Book</span>
-              </a>
-            </li>
-
-
-              <li class="nav-item">
-              <a class="nav-link" href="trial_balance.php">
-              <i class="fa fa-window-close-o" aria-hidden="true"></i>
-                <span class="menu-title">Trial Balance</span>
-              </a>
-            </li>
+            
 
             <li class="nav-item">
               <a class="nav-link" href="add_fixed_asset.php">
-              <i class="fa fa-window-close-o" aria-hidden="true"></i>
+              <i class="fa fa-asset-icon" aria-hidden="true"></i>
                 <span class="menu-title">Fixed Assets</span>
               </a>
             </li>
@@ -181,6 +181,14 @@
               <a class="nav-link" href="depreciation_management.php">
               <i class="fa fa-window-close-o" aria-hidden="true"></i>
                 <span class="menu-title">Depreciation Management</span>
+              </a>
+            </li>
+
+            
+            <li class="nav-item">
+              <a class="nav-link" href="captital_management.php">
+              <i class="fa fa-window-close-o" aria-hidden="true"></i>
+                <span class="menu-title">Capital Management</span>
               </a>
             </li>
 
