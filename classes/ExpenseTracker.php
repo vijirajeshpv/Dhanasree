@@ -2,7 +2,7 @@
 $filepath = realpath(dirname(__FILE__));
 
 include_once($filepath . "/../libs/CrudOperation.php");
-include_once($filepath . "/accounting/AccountingIntegration.php");
+include_once($filepath . "/../classes/accounting/AccountingIntegration.php");
 
 class ExpenseTracker {
     private $db;

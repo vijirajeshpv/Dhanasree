@@ -2,7 +2,7 @@
 $filepath = realpath(dirname(__FILE__));
 include_once($filepath . "/../libs/CrudOperation.php");
 include_once($filepath . "/../helpers/Format.php");
-include_once($filepath . "/accounting/AccountingIntegration.php");
+include_once($filepath . "/../classes/accounting/AccountingIntegration.php");
 
 /**
  * Sample Class for photo uploading, insert data, update data and others.
@@ -401,7 +401,7 @@ class ManageLoan
         $query = "SELECT tbl_customer.*, tbl_repledge.*
 			    FROM tbl_customer
 				INNER JOIN tbl_repledge
-				ON tbl_customer.id = tbl_repledge.customer_id
+				-- ON tbl_customer.id = tbl_repledge.customer_id
 				WHERE tbl_repledge.bank_gl_no ='$bank_gl_no' AND tbl_repledge.Status=0";
 
         $result = $this->db->select($query);

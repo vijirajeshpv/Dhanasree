@@ -13076,9 +13076,9 @@ tbody.collapse.show {
   border-radius: 0.25rem;
 }
 
-.card:hover {
+/* .card:hover {
   background-color: #aeb4fd !important;
-}
+} */
 
 .card-body {
   flex: 1 1 auto;

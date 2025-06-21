@@ -155,6 +155,35 @@
               </a>
             </li>
 
+            <li class="nav-item">
+              <a class="nav-link" href="cash_book.php">
+              <i class="fa fa-window-close-o" aria-hidden="true"></i>
+                <span class="menu-title">Cash Book</span>
+              </a>
+            </li>
+
+
+              <li class="nav-item">
+              <a class="nav-link" href="trial_balance.php">
+              <i class="fa fa-window-close-o" aria-hidden="true"></i>
+                <span class="menu-title">Trial Balance</span>
+              </a>
+            </li>
+
+            <li class="nav-item">
+              <a class="nav-link" href="add_fixed_asset.php">
+              <i class="fa fa-window-close-o" aria-hidden="true"></i>
+                <span class="menu-title">Fixed Assets</span>
+              </a>
+            </li>
+
+            <li class="nav-item">
+              <a class="nav-link" href="depreciation_management.php">
+              <i class="fa fa-window-close-o" aria-hidden="true"></i>
+                <span class="menu-title">Depreciation Management</span>
+              </a>
+            </li>
+
           </ul>
         </nav>
 

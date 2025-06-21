@@ -367,5 +367,292 @@ class AccountingIntegration extends AccountingCore
 
         return $message;
     }
+
+    /**
+     * Post asset purchase transaction
+     */
+    public function postAssetPurchase($asset_id, $amount, $date, $asset_name, $category) {
+        try {
+            // Determine asset account based on category
+            $asset_account_code = $this->getAssetAccountByCategory($category);
+            
+            // Generate reference number
+            $reference_no = $this->generateReferenceNumber('ASSET');
+            
+            // Get account IDs
+            $asset_account_id = $this->getAccountIdByCode($asset_account_code);
+            $cash_account_id = self::CASH_ACCOUNT;
+            
+            if (!$asset_account_id) {
+                return "Account mapping error - Asset account not found for category: $category";
+            }
+            
+            // Prepare transaction data (as array - matching AccountingCore format)
+            $data = [
+                'transaction_date' => $date,
+                'description' => "Asset Purchase - $asset_name",
+                'reference_no' => $reference_no,
+                'transaction_type' => 'Payment'
+            ];
+            
+            // Prepare journal entries
+            $entries = [
+                [
+                    'account_id' => $asset_account_id,
+                    'debit' => $amount,
+                    'credit' => 0,
+                    'description' => "Asset purchased - $asset_name"
+                ],
+                [
+                    'account_id' => $cash_account_id,
+                    'debit' => 0,
+                    'credit' => $amount,
+                    'description' => "Cash paid for asset purchase"
+                ]
+            ];
+            
+            // Create transaction using parent method
+            return $this->createTransaction($data, $entries);
+            
+        } catch (Exception $e) {
+            return "Error: " . $e->getMessage();
+        }
+    }
+
+    /**
+     * Post monthly depreciation transaction
+     */
+    public function postDepreciation($asset_id, $depreciation_amount, $date, $asset_name) {
+        try {
+            // Get asset details to determine category
+            $asset_sql = "SELECT category FROM tbl_fixed_assets WHERE id = '$asset_id'";
+            $asset_result = $this->db->select($asset_sql);
+            
+            if (!$asset_result) {
+                return "Asset not found";
+            }
+            
+            $asset = $asset_result->fetch_assoc();
+            
+            // Determine depreciation account based on category
+            $depreciation_account_code = $this->getDepreciationAccountByCategory($asset['category']);
+            
+            // Generate reference number
+            $reference_no = $this->generateReferenceNumber('DEP');
+            
+            // Get account IDs
+            $depreciation_expense_id = $this->getAccountIdByCode('5006'); // Depreciation Expense
+            $accumulated_depreciation_id = $this->getAccountIdByCode($depreciation_account_code);
+            
+            if (!$depreciation_expense_id || !$accumulated_depreciation_id) {
+                return "Account mapping error - Depreciation accounts not found";
+            }
+            
+            // Prepare transaction data
+            $data = [
+                'transaction_date' => $date,
+                'description' => "Monthly Depreciation - $asset_name",
+                'reference_no' => $reference_no,
+                'transaction_type' => 'Journal'
+            ];
+            
+            // Prepare journal entries
+            $entries = [
+                [
+                    'account_id' => $depreciation_expense_id,
+                    'debit' => $depreciation_amount,
+                    'credit' => 0,
+                    'description' => "Depreciation expense - $asset_name"
+                ],
+                [
+                    'account_id' => $accumulated_depreciation_id,
+                    'debit' => 0,
+                    'credit' => $depreciation_amount,
+                    'description' => "Accumulated depreciation - $asset_name"
+                ]
+            ];
+            
+            // Create transaction using parent method
+            return $this->createTransaction($data, $entries);
+            
+        } catch (Exception $e) {
+            return "Error: " . $e->getMessage();
+        }
+    }
+
+    /**
+     * Post asset disposal transaction
+     */
+    public function postAssetDisposal($asset_id, $disposal_amount, $book_value, $date, $asset_name) {
+        try {
+            // Get asset details
+            $asset_sql = "SELECT category, purchase_amount, accumulated_depreciation 
+                         FROM tbl_fixed_assets WHERE id = '$asset_id'";
+            $asset_result = $this->db->select($asset_sql);
+            
+            if (!$asset_result) {
+                return "Asset not found";
+            }
+            
+            $asset = $asset_result->fetch_assoc();
+            
+            // Calculate gain/loss on disposal
+            $gain_loss = $disposal_amount - $book_value;
+            
+            // Determine accounts
+            $asset_account_code = $this->getAssetAccountByCategory($asset['category']);
+            $depreciation_account_code = $this->getDepreciationAccountByCategory($asset['category']);
+            
+            // Generate reference number
+            $reference_no = $this->generateReferenceNumber('DISP');
+            
+            // Get account IDs
+            $cash_account_id = self::CASH_ACCOUNT;
+            $asset_account_id = $this->getAccountIdByCode($asset_account_code);
+            $accumulated_depreciation_id = $this->getAccountIdByCode($depreciation_account_code);
+            $other_income_id = self::OTHER_INCOME;
+            
+            if (!$asset_account_id || !$accumulated_depreciation_id) {
+                return "Account mapping error - Asset disposal accounts not found";
+            }
+            
+            // Prepare transaction data
+            $data = [
+                'transaction_date' => $date,
+                'description' => "Asset Disposal - $asset_name",
+                'reference_no' => $reference_no,
+                'transaction_type' => 'Receipt'
+            ];
+            
+            // Prepare journal entries
+            $entries = [];
+            
+            // Cash received (if any)
+            if ($disposal_amount > 0) {
+                $entries[] = [
+                    'account_id' => $cash_account_id,
+                    'debit' => $disposal_amount,
+                    'credit' => 0,
+                    'description' => "Cash received from asset disposal"
+                ];
+            }
+            
+            // Remove accumulated depreciation
+            $entries[] = [
+                'account_id' => $accumulated_depreciation_id,
+                'debit' => $asset['accumulated_depreciation'],
+                'credit' => 0,
+                'description' => "Remove accumulated depreciation"
+            ];
+            
+            // Remove asset cost
+            $entries[] = [
+                'account_id' => $asset_account_id,
+                'debit' => 0,
+                'credit' => $asset['purchase_amount'],
+                'description' => "Remove asset cost"
+            ];
+            
+            // Handle gain/loss
+            if ($gain_loss != 0) {
+                if ($gain_loss > 0) {
+                    // Gain on disposal
+                    $entries[] = [
+                        'account_id' => $other_income_id,
+                        'debit' => 0,
+                        'credit' => abs($gain_loss),
+                        'description' => "Gain on asset disposal"
+                    ];
+                } else {
+                    // Loss on disposal
+                    $entries[] = [
+                        'account_id' => $other_income_id,
+                        'debit' => abs($gain_loss),
+                        'credit' => 0,
+                        'description' => "Loss on asset disposal"
+                    ];
+                }
+            }
+            
+            // Create transaction using parent method
+            return $this->createTransaction($data, $entries);
+            
+        } catch (Exception $e) {
+            return "Error: " . $e->getMessage();
+        }
+    }
+
+    /**
+     * Get asset account code by category
+     */
+    private function getAssetAccountByCategory($category) {
+        $mapping = [
+            'Furniture' => 'FA001',
+            'Fixtures' => 'FA001', 
+            'Equipment' => 'FA002',
+            'Electronics' => 'FA003',
+            'Others' => 'FA004'
+        ];
+        
+        return $mapping[$category] ?? 'FA004';
+    }
+
+    /**
+     * Get depreciation account code by category
+     */
+    private function getDepreciationAccountByCategory($category) {
+        $mapping = [
+            'Furniture' => 'DEP001',
+            'Fixtures' => 'DEP001',
+            'Equipment' => 'DEP002', 
+            'Electronics' => 'DEP003',
+            'Others' => 'DEP004'
+        ];
+        
+        return $mapping[$category] ?? 'DEP004';
+    }
+
+    /**
+     * Get account ID by account code
+     */
+    private function getAccountIdByCode($account_code) {
+        $sql = "SELECT id FROM tbl_accounts WHERE account_code = '$account_code' AND is_active = 1";
+        $result = $this->db->select($sql);
+        
+        if ($result && $result->num_rows > 0) {
+            $row = $result->fetch_assoc();
+            return $row['id'];
+        }
+        
+        return null;
+    }
+
+    /**
+     * Generate reference number with sequence
+     */
+    private function generateReferenceNumber($type) {
+        // Get current sequence
+        $sql = "SELECT last_number FROM tbl_reference_sequences WHERE sequence_type = '$type'";
+        $result = $this->db->select($sql);
+        
+        if ($result && $result->num_rows > 0) {
+            $row = $result->fetch_assoc();
+            $next_number = $row['last_number'] + 1;
+        } else {
+            // Create new sequence if doesn't exist
+            $insert_sql = "INSERT INTO tbl_reference_sequences (sequence_type, prefix, last_number) 
+                          VALUES ('$type', '$type-', 1)";
+            $this->db->insert($insert_sql);
+            $next_number = 1;
+        }
+        
+        // Update sequence
+        $update_sql = "UPDATE tbl_reference_sequences 
+                      SET last_number = $next_number 
+                      WHERE sequence_type = '$type'";
+        $this->db->update($update_sql);
+        
+        return $type . '-' . str_pad($next_number, 4, '0', STR_PAD_LEFT);
+    }
 }
 ?>
