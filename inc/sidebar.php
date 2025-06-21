@@ -165,7 +165,12 @@
                   <li class="nav-item">
                     <a class="nav-link" href="trial_balance.php">Trial Balance</a>
                   </li>
+                  <li class="nav-item">
+                    <a class="nav-link" href="profit_loss_account.php">Profit & Loss Account</a>
+                  </li>
+
                 </ul>
+                
               </div>
             </li>
             

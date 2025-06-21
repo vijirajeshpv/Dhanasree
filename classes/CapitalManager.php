@@ -492,5 +492,16 @@ class CapitalManager {
         
         return $type . '-' . str_pad($next_number, 4, '0', STR_PAD_LEFT);
     }
+    public function dbcon()
+    {
+        return $this->db->link;
+    }
+
+    // Also add this method to make the database object accessible:
+    public function getDb()
+    {
+        return $this->db;
+    }
+    
 }
 ?>
