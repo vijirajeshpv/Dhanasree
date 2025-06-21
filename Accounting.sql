@@ -409,13 +409,6 @@ ON DUPLICATE KEY UPDATE
 account_name = VALUES(account_name),
 is_active = VALUES(is_active);
 
--- 4. Add Depreciation Expense Account (if not exists)
-INSERT INTO tbl_accounts (account_code, account_name, account_type, is_active) VALUES
-('5006', 'Depreciation Expense', 'Expense', 1)
-ON DUPLICATE KEY UPDATE 
-account_name = VALUES(account_name),
-is_active = VALUES(is_active);
-
 -- 5. Create View for Asset Register
 CREATE OR REPLACE VIEW vw_asset_register AS
 SELECT 

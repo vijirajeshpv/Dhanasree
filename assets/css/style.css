@@ -18713,16 +18713,20 @@ pre {
 
 .footer {
   background: #e1edef;
-  margin-left: 215px;
+  /* margin-left: 215px; */
   padding: 1rem;
   transition: all .8s ease;
-  width: calc(100% - 215px);
+  /* width: calc(100% - 215px); */
+  margin-right: 15px;
+  margin-left: 15px;
 }
 
 @media (max-width: 991px) {
   .footer {
-    margin-left: 0;
-    width: 100%;
+    /* margin-left: 0; */
+    margin-right: 15px;
+    margin-left: 15px;
+    /* width: 100%; */
   }
 }
 

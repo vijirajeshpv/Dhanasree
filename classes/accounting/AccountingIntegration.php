@@ -441,7 +441,7 @@ class AccountingIntegration extends AccountingCore
             $reference_no = $this->generateReferenceNumber('DEP');
             
             // Get account IDs
-            $depreciation_expense_id = $this->getAccountIdByCode('5006'); // Depreciation Expense
+            $depreciation_expense_id = $this->getAccountIdByCode('DEPRECIATION_EXP001'); // Depreciation Expense
             $accumulated_depreciation_id = $this->getAccountIdByCode($depreciation_account_code);
             
             if (!$depreciation_expense_id || !$accumulated_depreciation_id) {
