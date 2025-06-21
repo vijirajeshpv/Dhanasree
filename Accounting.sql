@@ -468,3 +468,149 @@ INSERT INTO tbl_reference_sequences (sequence_type, prefix, last_number) VALUES
 ('DISP', 'DISP-', 0)
 ON DUPLICATE KEY UPDATE 
 prefix = VALUES(prefix);
+
+
+
+-- Database Updates for Financial Period Integration
+
+-- 1. Add financial_period_id to transactions table
+ALTER TABLE tbl_transactions 
+ADD COLUMN financial_period_id INT DEFAULT NULL,
+ADD CONSTRAINT fk_financial_period 
+FOREIGN KEY (financial_period_id) REFERENCES tbl_financial_periods(id);
+
+-- 2. Add financial_period_id to capital_transactions table
+ALTER TABLE tbl_capital_transactions 
+ADD COLUMN financial_period_id INT DEFAULT NULL,
+ADD CONSTRAINT fk_capital_financial_period 
+FOREIGN KEY (financial_period_id) REFERENCES tbl_financial_periods(id);
+
+-- 3. Add indexes for performance
+CREATE INDEX idx_transaction_period ON tbl_transactions(financial_period_id);
+CREATE INDEX idx_capital_period ON tbl_capital_transactions(financial_period_id);
+CREATE INDEX idx_period_date_status ON tbl_financial_periods(start_date, end_date, is_closed);
+
+-- 4. Update existing data to assign to current period (if needed)
+UPDATE tbl_transactions 
+SET financial_period_id = (
+    SELECT id FROM tbl_financial_periods 
+    WHERE tbl_transactions.transaction_date BETWEEN start_date AND end_date 
+    LIMIT 1
+)
+WHERE financial_period_id IS NULL;
+
+UPDATE tbl_capital_transactions 
+SET financial_period_id = (
+    SELECT id FROM tbl_financial_periods 
+    WHERE tbl_capital_transactions.transaction_date BETWEEN start_date AND end_date 
+    LIMIT 1
+)
+WHERE financial_period_id IS NULL;
+
+-- 5. Create view for period-wise transactions
+CREATE VIEW vw_period_transactions AS
+SELECT 
+    t.id,
+    t.transaction_date,
+    t.description,
+    t.reference_no,
+    t.transaction_type,
+    t.status,
+    fp.period_name,
+    fp.is_closed as period_closed,
+    SUM(td.debit) as total_debit,
+    SUM(td.credit) as total_credit
+FROM tbl_transactions t
+LEFT JOIN tbl_financial_periods fp ON t.financial_period_id = fp.id
+LEFT JOIN tbl_transaction_details td ON t.id = td.transaction_id
+GROUP BY t.id, fp.id;
+
+-- 6. Create view for period-wise P&L summary
+CREATE VIEW vw_period_pl_summary AS
+SELECT 
+    fp.id as period_id,
+    fp.period_name,
+    fp.start_date,
+    fp.end_date,
+    fp.is_closed,
+    COALESCE(SUM(CASE WHEN a.account_type = 'Income' 
+                     THEN td.credit - td.debit ELSE 0 END), 0) as total_income,
+    COALESCE(SUM(CASE WHEN a.account_type = 'Expense' 
+                     THEN td.debit - td.credit ELSE 0 END), 0) as total_expenses,
+    COALESCE(SUM(CASE WHEN a.account_type = 'Income' 
+                     THEN td.credit - td.debit ELSE 0 END), 0) - 
+    COALESCE(SUM(CASE WHEN a.account_type = 'Expense' 
+                     THEN td.debit - td.credit ELSE 0 END), 0) as net_profit
+FROM tbl_financial_periods fp
+LEFT JOIN tbl_transactions t ON fp.id = t.financial_period_id AND t.status = 'Posted'
+LEFT JOIN tbl_transaction_details td ON t.id = td.transaction_id
+LEFT JOIN tbl_accounts a ON td.account_id = a.id
+GROUP BY fp.id;
+
+-- -- 7. Insert additional periods if needed (example)
+-- INSERT INTO tbl_financial_periods (period_name, start_date, end_date, is_closed) VALUES
+-- ('FY 2023-2024', '2023-04-01', '2024-03-31', TRUE),
+-- ('FY 2025-2026', '2025-04-01', '2026-03-31', FALSE);
+
+-- 8. Create stored procedure for period validation
+DELIMITER //
+CREATE PROCEDURE ValidateTransactionPeriod(
+    IN p_transaction_date DATE,
+    OUT p_valid BOOLEAN,
+    OUT p_period_id INT,
+    OUT p_message VARCHAR(255)
+)
+BEGIN
+    DECLARE period_count INT DEFAULT 0;
+    DECLARE period_closed BOOLEAN DEFAULT FALSE;
+    
+    -- Check if date falls in any period
+    SELECT COUNT(*), id, is_closed
+    INTO period_count, p_period_id, period_closed
+    FROM tbl_financial_periods
+    WHERE p_transaction_date BETWEEN start_date AND end_date
+    LIMIT 1;
+    
+    IF period_count = 0 THEN
+        SET p_valid = FALSE;
+        SET p_message = 'Transaction date does not fall within any financial period';
+    ELSEIF period_closed = TRUE THEN
+        SET p_valid = FALSE;
+        SET p_message = 'Cannot create transaction in closed financial period';
+    ELSE
+        SET p_valid = TRUE;
+        SET p_message = 'Valid period found';
+    END IF;
+END //
+DELIMITER ;
+
+-- 9. Create function to get current active period
+DELIMITER //
+CREATE FUNCTION GetCurrentPeriodId() 
+RETURNS INT
+READS SQL DATA
+DETERMINISTIC
+BEGIN
+    DECLARE period_id INT DEFAULT NULL;
+    
+    SELECT id INTO period_id
+    FROM tbl_financial_periods
+    WHERE CURDATE() BETWEEN start_date AND end_date
+    AND is_closed = FALSE
+    LIMIT 1;
+    
+    RETURN period_id;
+END //
+DELIMITER ;
+
+-- 10. Create trigger to auto-assign period to transactions
+DELIMITER //
+CREATE TRIGGER tr_auto_assign_period
+    BEFORE INSERT ON tbl_transactions
+    FOR EACH ROW
+BEGIN
+    IF NEW.financial_period_id IS NULL THEN
+        SET NEW.financial_period_id = GetCurrentPeriodId();
+    END IF;
+END //
+DELIMITER ;
