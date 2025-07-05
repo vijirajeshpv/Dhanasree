@@ -419,8 +419,8 @@ class CapitalManager {
         $transactions = $this->getCapitalTransactions($start_date, $end_date, 1000);
         
         // Calculate closing balances
-        $closing_capital = $this->getCapitalBalance();
-        $closing_retained = $this->getRetainedEarningsBalance();
+        $closing_capital = $this->getAccountBalanceAsOf(3001, $end_date);
+        $closing_retained = $this->getAccountBalanceAsOf(3002, $end_date);
         
         return [
             'opening_capital' => $opening_balance,
