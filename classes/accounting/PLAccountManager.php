@@ -26,65 +26,98 @@ class PLAccountManager {
         $start_date = $this->fm->validation($start_date);
         $end_date = $this->fm->validation($end_date);
         
-        // Get all income accounts with transactions
-        $income_query = "SELECT 
-                          a.id,
-                          a.account_code,
-                          a.account_name,
-                          COALESCE(SUM(td.credit), 0) - COALESCE(SUM(td.debit), 0) as amount
-                        FROM tbl_accounts a
-                        LEFT JOIN tbl_transaction_details td ON a.id = td.account_id
-                        LEFT JOIN tbl_transactions t ON td.transaction_id = t.id
-                          AND t.transaction_date BETWEEN '$start_date' AND '$end_date'
-                          AND t.status = 'Posted'
-                        WHERE a.account_type = 'Income'
-                        AND a.is_active = TRUE
-                        GROUP BY a.id, a.account_code, a.account_name
-                        HAVING amount > 0
-                        ORDER BY a.account_code";
-
-        // Get all expense accounts with transactions
-        $expense_query = "SELECT 
-                           a.id,
-                           a.account_code,
-                           a.account_name,
-                           COALESCE(SUM(td.debit), 0) - COALESCE(SUM(td.credit), 0) as amount
-                         FROM tbl_accounts a
-                         LEFT JOIN tbl_transaction_details td ON a.id = td.account_id
-                         LEFT JOIN tbl_transactions t ON td.transaction_id = t.id
-                           AND t.transaction_date BETWEEN '$start_date' AND '$end_date'
-                           AND t.status = 'Posted'
-                         WHERE a.account_type = 'Expense'
-                         AND a.is_active = TRUE
-                         GROUP BY a.id, a.account_code, a.account_name
-                         HAVING amount > 0
-                         ORDER BY a.account_code";
-
-        $income_result = $this->db->select($income_query);
-        $expense_result = $this->db->select($expense_query);
-
-        // Process results
+        // CRITICAL FIX: Exclude year-end closing transactions
+        // Year-end closing entries reverse expense/income balances and should not be included in P&L
+        
+        $transaction_details_query = "SELECT 
+                                        a.id as account_id,
+                                        a.account_code,
+                                        a.account_name,
+                                        a.account_type,
+                                        td.debit,
+                                        td.credit,
+                                        t.transaction_date,
+                                        t.reference_no,
+                                        t.description as transaction_desc
+                                      FROM tbl_accounts a
+                                      JOIN tbl_transaction_details td ON a.id = td.account_id
+                                      JOIN tbl_transactions t ON td.transaction_id = t.id
+                                      WHERE a.account_type IN ('Income', 'Expense')
+                                      AND a.is_active = TRUE
+                                      AND t.transaction_date BETWEEN '$start_date' AND '$end_date'
+                                      AND t.status = 'Posted'
+                                      AND t.description NOT LIKE '%year-end closing%'
+                                      AND t.description NOT LIKE '%Year-end closing%'
+                                      AND t.description NOT LIKE '%Close Income%'
+                                      AND t.description NOT LIKE '%Close Expenses%'
+                                      AND t.reference_no NOT LIKE 'YE-%'
+                                      ORDER BY a.account_type, a.account_name";
+    
+        $result = $this->db->select($transaction_details_query);
+        
+        $account_totals = [];
+        
+        if ($result) {
+            while ($row = $result->fetch_assoc()) {
+                $account_id = $row['account_id'];
+                
+                // Initialize account if not exists
+                if (!isset($account_totals[$account_id])) {
+                    $account_totals[$account_id] = [
+                        'account_code' => $row['account_code'],
+                        'account_name' => $row['account_name'],
+                        'account_type' => $row['account_type'],
+                        'total_debit' => 0,
+                        'total_credit' => 0,
+                        'net_amount' => 0
+                    ];
+                }
+                
+                // Accumulate amounts
+                $account_totals[$account_id]['total_debit'] += floatval($row['debit']);
+                $account_totals[$account_id]['total_credit'] += floatval($row['credit']);
+            }
+        }
+        
+        // Calculate net amounts and prepare final arrays
         $income_items = [];
         $expense_items = [];
         $total_income = 0;
         $total_expenses = 0;
-
-        if ($income_result) {
-            while ($row = $income_result->fetch_assoc()) {
-                $income_items[] = $row;
-                $total_income += $row['amount'];
+        
+        foreach ($account_totals as $account_id => $account) {
+            // Calculate net amount based on account type
+            if ($account['account_type'] == 'Income') {
+                // For Income: Credits increase income, Debits decrease income
+                $net_amount = $account['total_credit'] - $account['total_debit'];
+                
+                if ($net_amount > 0) {
+                    $income_items[] = [
+                        'id' => $account_id,
+                        'account_code' => $account['account_code'],
+                        'account_name' => $account['account_name'],
+                        'amount' => $net_amount
+                    ];
+                    $total_income += $net_amount;
+                }
+            } elseif ($account['account_type'] == 'Expense') {
+                // For Expenses: Debits increase expenses, Credits decrease expenses
+                $net_amount = $account['total_debit'] - $account['total_credit'];
+                
+                if ($net_amount > 0) {
+                    $expense_items[] = [
+                        'id' => $account_id,
+                        'account_code' => $account['account_code'],
+                        'account_name' => $account['account_name'],
+                        'amount' => $net_amount
+                    ];
+                    $total_expenses += $net_amount;
+                }
             }
         }
-
-        if ($expense_result) {
-            while ($row = $expense_result->fetch_assoc()) {
-                $expense_items[] = $row;
-                $total_expenses += $row['amount'];
-            }
-        }
-
+        
         $net_profit = $total_income - $total_expenses;
-
+        
         return [
             'income' => $income_items,
             'expenses' => $expense_items,
@@ -97,6 +130,36 @@ class PLAccountManager {
             ]
         ];
     }
+    
+    // Method to handle financial period based filtering (for future use)
+    public function getProfitLossAccountByPeriod($financial_period_id) {
+        $financial_period_id = $this->fm->validation($financial_period_id);
+        
+        // Get period details
+        $period_query = "SELECT * FROM tbl_financial_periods WHERE id = '$financial_period_id'";
+        $period_result = $this->db->select($period_query);
+        
+        if (!$period_result) {
+            return ['error' => 'Financial period not found'];
+        }
+        
+        $period = $period_result->fetch_assoc();
+        
+        // Use the corrected method with period dates
+        $pl_data = $this->getProfitLossAccount($period['start_date'], $period['end_date']);
+        
+        // Add period information
+        $pl_data['period'] = [
+            'id' => $period['id'],
+            'name' => $period['period_name'],
+            'start_date' => $period['start_date'],
+            'end_date' => $period['end_date'],
+            'is_closed' => $period['is_closed']
+        ];
+        
+        return $pl_data;
+    }
+  
     
     /**
      * Get monthly P&L comparison
