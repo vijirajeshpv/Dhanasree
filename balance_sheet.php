@@ -1,566 +1,685 @@
 <?php
-ob_start(); // Start output buffering
-
+// balance_sheet.php - Complete Balance Sheet with Financial Period Support
+ob_start();
 include_once "inc/header.php";
 include_once "inc/sidebar.php";
-include_once "classes/accounting/AccountingReports.php";
+include_once "classes/accounting/BalanceSheetManager.php";
+include_once "components/accounting_filters.php";
 require('fpdf186/fpdf.php');
 
-// Initialize AccountingReports class
-$accounting = new AccountingReports();
+$balanceSheetManager = new BalanceSheetManager();
 
-// Handle date filtering
-$asOfDate = isset($_GET['as_of_date']) ? $_GET['as_of_date'] : date('Y-m-d');
+// Get filter parameters using the common component
+$filterParams = getAccountingFilterParams();
+$balance_sheet_data = null;
 
-// Get balance sheet data
-$balanceSheetData = $accounting->getBalanceSheet($asOfDate);
+// For Balance Sheet, we use the end date (as of date)
+// If date range is selected, use the end date
+// If financial period is selected, use the period end date
+$as_of_date = '';
 
-// Custom function to categorize and organize balance sheet data
-function organizeBalanceSheetData($balanceSheetData) {
-    $organized = [
-        'fixed_assets' => [],
-        'current_assets' => [],
-        'capital_accounts' => [],
-        'current_liabilities' => [],
-        'totals' => [
-            'fixed_assets' => 0,
-            'current_assets' => 0,
-            'total_assets' => 0,
-            'capital' => 0,
-            'liabilities' => 0,
-            'total_liab_equity' => 0
-        ]
-    ];
-    
-    // Categorize assets
-    foreach ($balanceSheetData['assets'] as $asset) {
-        if (in_array($asset['account_code'], ['FA001', 'FA002', 'FA003', 'FA004', 'FURNITURE001', 'OFFICEEQUIP001']) || 
-            strpos($asset['account_name'], 'Furniture') !== false || 
-            strpos($asset['account_name'], 'Fixtures') !== false ||
-            strpos($asset['account_name'], 'Electrical') !== false ||
-            strpos($asset['account_name'], 'Weighing') !== false ||
-            strpos($asset['account_name'], 'Depreciation') !== false) {
-            $organized['fixed_assets'][] = $asset;
-            $organized['totals']['fixed_assets'] += $asset['balance'];
-        } else {
-            $organized['current_assets'][] = $asset;
-            $organized['totals']['current_assets'] += $asset['balance'];
-        }
+if ($filterParams['has_data']) {
+    if ($filterParams['filter_type'] == 'financial_period') {
+        $balance_sheet_data = $balanceSheetManager->getBalanceSheetByPeriod($filterParams['financial_period_id']);
+        $as_of_date = $filterParams['end_date'];
+    } else {
+        $as_of_date = $filterParams['end_date'];
+        $balance_sheet_data = $balanceSheetManager->getCategorizedBalanceSheet($as_of_date);
     }
-    
-    // Categorize equity (capital accounts)
-    foreach ($balanceSheetData['equity'] as $equity) {
-        if (in_array($equity['account_code'], ['EQ001', 'EQ002', 'EQ003']) ||
-            strpos($equity['account_name'], 'Capital') !== false ||
-            in_array($equity['account_name'], ['Karthiyani', 'Rajesh', 'Vasudeval'])) {
-            $organized['capital_accounts'][] = $equity;
-            $organized['totals']['capital'] += $equity['balance'];
-        }
-    }
-    
-    // All liabilities go to current liabilities
-    foreach ($balanceSheetData['liabilities'] as $liability) {
-        $organized['current_liabilities'][] = $liability;
-        $organized['totals']['liabilities'] += $liability['balance'];
-    }
-    
-    $organized['totals']['total_assets'] = $organized['totals']['fixed_assets'] + $organized['totals']['current_assets'];
-    $organized['totals']['total_liab_equity'] = $organized['totals']['capital'] + $organized['totals']['liabilities'];
-    
-    return $organized;
 }
 
-$organizedData = organizeBalanceSheetData($balanceSheetData);
+// Check for export requests
+$export_format = isset($_GET['export']) ? $_GET['export'] : '';
 
-// Handle PDF export
-if (isset($_GET['export']) && $_GET['export'] == 'pdf') {
+// Handle Excel Export
+if ($export_format == 'excel' && $balance_sheet_data) {
     ob_end_clean();
+    $balanceSheetManager->exportBalanceSheetToExcel($as_of_date);
+    exit;
+}
 
+// Handle PDF Export
+if ($export_format == 'pdf' && $balance_sheet_data) {
+    ob_end_clean();
+    
     class BalanceSheetPDF extends FPDF {
-        private $asOfDate;
+        private $asOfDate, $periodInfo;
         
-        function __construct($asOfDate) {
+        function __construct($as_of_date, $period_info = null) {
             parent::__construct();
-            $this->asOfDate = $asOfDate;
+            $this->asOfDate = $as_of_date;
+            $this->periodInfo = $period_info;
         }
         
         function Header() {
-            // Company header
+            $this->SetFont('Arial', 'B', 16);
+            $this->Cell(0, 10, 'JAYALAKSHMI ENTERPRISES', 0, 1, 'C');
+            $this->SetFont('Arial', 'B', 14);
+            $this->Cell(0, 8, 'BALANCE SHEET', 0, 1, 'C');
+            $this->SetFont('Arial', '', 12);
+            
+            if ($this->periodInfo) {
+                $this->Cell(0, 6, 'As of ' . date('d/m/Y', strtotime($this->asOfDate)), 0, 1, 'C');
+                $this->Cell(0, 6, '(' . $this->periodInfo['period_name'] . ')', 0, 1, 'C');
+            } else {
+                $this->Cell(0, 6, 'As of ' . date('d/m/Y', strtotime($this->asOfDate)), 0, 1, 'C');
+            }
+            $this->Ln(10);
+        }
+        
+        function Footer() {
+            $this->SetY(-20);
+            $this->SetFont('Arial', '', 8);
+            $this->Cell(0, 5, 'Generated on ' . date('d/m/Y H:i'), 0, 1, 'C');
+        }
+        
+        function BalanceSheetTable($data) {
             $this->SetFont('Arial', 'B', 12);
-            $this->Cell(0, 6, 'JAYALAKSHMI ENTERPRISES, THANISSERY, THRISSUR - KML REG NO.32080302832 (2508-0-413)', 0, 1, 'C');
             
-            // Balance sheet title with date
-            $this->SetFont('Arial', 'BU', 11);
-            $this->Cell(0, 8, 'BALANCE SHEET AS AT ' . strtoupper(date('jS F Y', strtotime($this->asOfDate))), 0, 1, 'C');
-            $this->Ln(3);
-        }
-        
-        function BalanceSheetTable($organizedData) {
-            // Table headers
-            $this->SetFont('Arial', 'B', 9);
-            $this->Cell(95, 6, 'LIABILITIES', 1, 0, 'C');
-            $this->Cell(20, 6, 'AMOUNT', 1, 0, 'C');
-            $this->Cell(5, 6, '', 0, 0); // Spacing
-            $this->Cell(45, 6, 'ASSETS', 1, 0, 'C');
-            $this->Cell(25, 6, 'AMOUNT', 1, 1, 'C');
+            // Assets section
+            $this->Cell(120, 8, 'ASSETS', 0, 0, 'L');
+            $this->Cell(50, 8, 'AMOUNT (Rs)', 0, 1, 'R');
+            $this->Line(10, $this->GetY(), 200, $this->GetY());
+            $this->Ln(2);
             
-            // Capital Account section
-            $this->SetFont('Arial', 'B', 8);
-            $this->Cell(95, 5, 'CAPITAL ACCOUNT', 1, 0, 'L');
-            $this->Cell(20, 5, '', 1, 0, 'C');
-            $this->Cell(5, 5, '', 0, 0);
-            $this->Cell(45, 5, 'FIXED ASSETS', 1, 0, 'L');
-            $this->Cell(25, 5, '', 1, 1, 'C');
+            $this->SetFont('Arial', '', 10);
             
-            $this->SetFont('Arial', '', 8);
-            
-            // Display capital accounts with fixed assets
-            $maxCapital = count($organizedData['capital_accounts']);
-            $maxFixed = count($organizedData['fixed_assets']);
-            $maxRows = max($maxCapital, $maxFixed);
-            
-            for ($i = 0; $i < $maxRows; $i++) {
-                // Capital account
-                if ($i < $maxCapital) {
-                    $capital = $organizedData['capital_accounts'][$i];
-                    $this->Cell(95, 5, $capital['account_name'], 1, 0, 'L');
-                    $this->Cell(20, 5, number_format($capital['balance'], 2), 1, 0, 'R');
-                } else {
-                    $this->Cell(95, 5, '', 1, 0, 'L');
-                    $this->Cell(20, 5, '', 1, 0, 'R');
+            // Current Assets
+            if (!empty($data['current_assets'])) {
+                $this->SetFont('Arial', 'B', 10);
+                $this->Cell(120, 6, 'Current Assets:', 0, 1, 'L');
+                $this->SetFont('Arial', '', 10);
+                
+                foreach ($data['current_assets'] as $asset) {
+                    $this->Cell(10, 5, '', 0, 0);
+                    $this->Cell(110, 5, $asset['account_name'], 0, 0, 'L');
+                    $this->Cell(50, 5, number_format($asset['balance'], 2), 0, 1, 'R');
                 }
                 
-                $this->Cell(5, 5, '', 0, 0);
-                
-                // Fixed asset
-                if ($i < $maxFixed) {
-                    $asset = $organizedData['fixed_assets'][$i];
-                    $this->Cell(45, 5, $asset['account_name'], 1, 0, 'L');
-                    $this->Cell(25, 5, number_format($asset['balance'], 2), 1, 1, 'R');
-                } else {
-                    $this->Cell(45, 5, '', 1, 0, 'L');
-                    $this->Cell(25, 5, '', 1, 1, 'R');
-                }
+                $this->SetFont('Arial', 'B', 10);
+                $this->Cell(10, 6, '', 0, 0);
+                $this->Cell(110, 6, 'Total Current Assets', 0, 0, 'L');
+                $this->Cell(50, 6, number_format($data['total_current_assets'], 2), 0, 1, 'R');
+                $this->Ln(3);
             }
             
-            // Capital total
-            $this->Cell(95, 5, '', 1, 0, 'L');
-            $this->Cell(20, 5, number_format($organizedData['totals']['capital'], 2), 1, 0, 'R');
-            $this->Cell(5, 5, '', 0, 0);
-            $this->Cell(45, 5, '', 1, 0, 'L');
-            $this->Cell(25, 5, '', 1, 1, 'R');
-            
-            // Current Liabilities section
-            $this->SetFont('Arial', 'B', 8);
-            $this->Cell(95, 5, 'PARTNERS CURRENT A/C.', 1, 0, 'L');
-            $this->Cell(20, 5, '', 1, 0, 'C');
-            $this->Cell(5, 5, '', 0, 0);
-            $this->Cell(45, 5, 'CURRENT ASSETS', 1, 0, 'L');
-            $this->Cell(25, 5, '', 1, 1, 'C');
-            
-            $this->SetFont('Arial', '', 8);
-            
-            // Display current liabilities with current assets
-            $maxLiabilities = count($organizedData['current_liabilities']);
-            $maxCurrent = count($organizedData['current_assets']);
-            $maxRows = max($maxLiabilities, $maxCurrent);
-            
-            for ($i = 0; $i < $maxRows; $i++) {
-                // Current liability
-                if ($i < $maxLiabilities) {
-                    $liability = $organizedData['current_liabilities'][$i];
-                    $this->Cell(95, 5, $liability['account_name'], 1, 0, 'L');
-                    $this->Cell(20, 5, number_format($liability['balance'], 2), 1, 0, 'R');
-                } else {
-                    $this->Cell(95, 5, '', 1, 0, 'L');
-                    $this->Cell(20, 5, '', 1, 0, 'R');
+            // Fixed Assets
+            if (!empty($data['fixed_assets'])) {
+                $this->SetFont('Arial', 'B', 10);
+                $this->Cell(120, 6, 'Fixed Assets:', 0, 1, 'L');
+                $this->SetFont('Arial', '', 10);
+                
+                foreach ($data['fixed_assets'] as $asset) {
+                    $this->Cell(10, 5, '', 0, 0);
+                    $this->Cell(110, 5, $asset['account_name'], 0, 0, 'L');
+                    $this->Cell(50, 5, number_format($asset['balance'], 2), 0, 1, 'R');
                 }
                 
-                $this->Cell(5, 5, '', 0, 0);
-                
-                // Current asset
-                if ($i < $maxCurrent) {
-                    $asset = $organizedData['current_assets'][$i];
-                    $this->Cell(45, 5, $asset['account_name'], 1, 0, 'L');
-                    $this->Cell(25, 5, number_format($asset['balance'], 2), 1, 1, 'R');
-                } else {
-                    $this->Cell(45, 5, '', 1, 0, 'L');
-                    $this->Cell(25, 5, '', 1, 1, 'R');
-                }
+                $this->SetFont('Arial', 'B', 10);
+                $this->Cell(10, 6, '', 0, 0);
+                $this->Cell(110, 6, 'Total Fixed Assets', 0, 0, 'L');
+                $this->Cell(50, 6, number_format($data['total_fixed_assets'], 2), 0, 1, 'R');
+                $this->Ln(3);
             }
             
-            // Totals
-            $this->SetFont('Arial', 'B', 8);
-            $this->Cell(95, 6, 'Total', 1, 0, 'C');
-            $this->Cell(20, 6, number_format($organizedData['totals']['total_liab_equity'], 2), 1, 0, 'R');
-            $this->Cell(5, 6, '', 0, 0);
-            $this->Cell(45, 6, 'Total', 1, 0, 'C');
-            $this->Cell(25, 6, number_format($organizedData['totals']['total_assets'], 2), 1, 1, 'R');
+            // Other Assets
+            if (!empty($data['other_assets'])) {
+                foreach ($data['other_assets'] as $asset) {
+                    $this->Cell(10, 5, '', 0, 0);
+                    $this->Cell(110, 5, $asset['account_name'], 0, 0, 'L');
+                    $this->Cell(50, 5, number_format($asset['balance'], 2), 0, 1, 'R');
+                }
+                $this->Ln(3);
+            }
             
-            // Footer
+            // Total Assets
+            $this->SetFont('Arial', 'B', 12);
+            $this->Line(10, $this->GetY(), 200, $this->GetY());
+            $this->Cell(120, 8, 'TOTAL ASSETS', 0, 0, 'L');
+            $this->Cell(50, 8, number_format($data['total_assets'], 2), 0, 1, 'R');
+            $this->Line(10, $this->GetY(), 200, $this->GetY());
             $this->Ln(5);
-            $this->SetFont('Arial', '', 8);
-            $this->Cell(95, 5, 'Place:Irinjalakuda', 0, 0, 'L');
-            $this->Cell(0, 5, 'As per our report even date attached', 0, 1, 'R');
-            $this->Cell(95, 5, 'Date:' . date('d/m/Y'), 0, 1, 'L');
+            
+            // Liabilities section
+            $this->Cell(120, 8, 'LIABILITIES', 0, 0, 'L');
+            $this->Cell(50, 8, '', 0, 1, 'R');
+            $this->Line(10, $this->GetY(), 200, $this->GetY());
+            $this->Ln(2);
+            
+            $this->SetFont('Arial', '', 10);
+            
+            // Current Liabilities
+            if (!empty($data['current_liabilities'])) {
+                $this->SetFont('Arial', 'B', 10);
+                $this->Cell(120, 6, 'Current Liabilities:', 0, 1, 'L');
+                $this->SetFont('Arial', '', 10);
+                
+                foreach ($data['current_liabilities'] as $liability) {
+                    $this->Cell(10, 5, '', 0, 0);
+                    $this->Cell(110, 5, $liability['account_name'], 0, 0, 'L');
+                    $this->Cell(50, 5, number_format($liability['balance'], 2), 0, 1, 'R');
+                }
+                
+                $this->SetFont('Arial', 'B', 10);
+                $this->Cell(10, 6, '', 0, 0);
+                $this->Cell(110, 6, 'Total Current Liabilities', 0, 0, 'L');
+                $this->Cell(50, 6, number_format($data['total_current_liabilities'], 2), 0, 1, 'R');
+                $this->Ln(3);
+            }
+            
+            // Long-term Liabilities
+            if (!empty($data['long_term_liabilities'])) {
+                $this->SetFont('Arial', 'B', 10);
+                $this->Cell(120, 6, 'Long-term Liabilities:', 0, 1, 'L');
+                $this->SetFont('Arial', '', 10);
+                
+                foreach ($data['long_term_liabilities'] as $liability) {
+                    $this->Cell(10, 5, '', 0, 0);
+                    $this->Cell(110, 5, $liability['account_name'], 0, 0, 'L');
+                    $this->Cell(50, 5, number_format($liability['balance'], 2), 0, 1, 'R');
+                }
+                
+                $this->SetFont('Arial', 'B', 10);
+                $this->Cell(10, 6, '', 0, 0);
+                $this->Cell(110, 6, 'Total Long-term Liabilities', 0, 0, 'L');
+                $this->Cell(50, 6, number_format($data['total_long_term_liabilities'], 2), 0, 1, 'R');
+                $this->Ln(3);
+            }
+            
+            // Total Liabilities
+            $this->SetFont('Arial', 'B', 11);
+            $this->Cell(120, 6, 'Total Liabilities', 0, 0, 'L');
+            $this->Cell(50, 6, number_format($data['total_liabilities'], 2), 0, 1, 'R');
+            $this->Ln(3);
+            
+            // Equity section
+            $this->SetFont('Arial', 'B', 12);
+            $this->Cell(120, 8, 'EQUITY', 0, 0, 'L');
+            $this->Cell(50, 8, '', 0, 1, 'R');
+            $this->Line(10, $this->GetY(), 200, $this->GetY());
+            $this->Ln(2);
+            
+            $this->SetFont('Arial', '', 10);
+            foreach ($data['equity'] as $equity) {
+                $this->Cell(10, 5, '', 0, 0);
+                $this->Cell(110, 5, $equity['account_name'], 0, 0, 'L');
+                $this->Cell(50, 5, number_format($equity['balance'], 2), 0, 1, 'R');
+            }
+            
+            $this->SetFont('Arial', 'B', 11);
+            $this->Cell(120, 6, 'Total Equity', 0, 0, 'L');
+            $this->Cell(50, 6, number_format($data['total_equity'], 2), 0, 1, 'R');
+            $this->Ln(5);
+            
+            // Total Liabilities & Equity
+            $this->SetFont('Arial', 'B', 12);
+            $this->Line(10, $this->GetY(), 200, $this->GetY());
+            $this->Cell(120, 8, 'TOTAL LIABILITIES & EQUITY', 0, 0, 'L');
+            $this->Cell(50, 8, number_format($data['total_liabilities_equity'], 2), 0, 1, 'R');
+            $this->Line(10, $this->GetY(), 200, $this->GetY());
+            
+            // Balance check
+            if (!$data['is_balanced']) {
+                $this->Ln(5);
+                $this->SetFont('Arial', 'B', 10);
+                $this->SetTextColor(255, 0, 0);
+                $difference = $data['total_assets'] - $data['total_liabilities_equity'];
+                $this->Cell(0, 6, 'WARNING: Balance Sheet does not balance! Difference: Rs ' . number_format($difference, 2), 0, 1, 'C');
+                $this->SetTextColor(0, 0, 0);
+            }
         }
     }
-
-    $pdf = new BalanceSheetPDF($asOfDate);
+    
+    $pdf = new BalanceSheetPDF($as_of_date, $filterParams['period_info']);
     $pdf->AddPage();
-    $pdf->BalanceSheetTable($organizedData);
-    $pdf->Output('D', 'Balance_Sheet_' . $asOfDate . '.pdf');
+    $pdf->BalanceSheetTable($balance_sheet_data);
+    
+    $filename = 'Balance_Sheet_' . $as_of_date . '.pdf';
+    $pdf->Output('D', $filename);
     exit;
 }
 
-// Handle Excel export (similar structure)
-if (isset($_GET['export']) && $_GET['export'] == 'excel') {
-    ob_end_clean();
-    
-    header('Content-Type: application/vnd.ms-excel');
-    header('Content-Disposition: attachment; filename="Balance_Sheet_' . $asOfDate . '.xls"');
-    
-    echo '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">';
-    echo '<head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head>';
-    echo '<body>';
-    
-    // Header
-    echo '<table border="0" width="100%" style="text-align:center;">';
-    echo '<tr><td colspan="4" style="font-size:12px; font-weight:bold;">JAYALAKSHMI ENTERPRISES, THANISSERY, THRISSUR - KML REG NO.32080302832 (2508-0-413)</td></tr>';
-    echo '<tr><td colspan="4" style="font-size:11px; font-weight:bold; text-decoration:underline;">BALANCE SHEET AS AT ' . strtoupper(date('jS F Y', strtotime($asOfDate))) . '</td></tr>';
-    echo '<tr><td colspan="4">&nbsp;</td></tr>';
-    echo '</table>';
-    
-    // Balance sheet table
-    echo '<table border="1" style="border-collapse:collapse; width:100%;">';
-    echo '<tr style="background-color:#f0f0f0; font-weight:bold;">';
-    echo '<td width="45%">LIABILITIES</td>';
-    echo '<td width="15%">AMOUNT</td>';
-    echo '<td width="25%">ASSETS</td>';
-    echo '<td width="15%">AMOUNT</td>';
-    echo '</tr>';
-    
-    // Capital section
-    echo '<tr style="background-color:#e6f3ff; font-weight:bold;">';
-    echo '<td>CAPITAL ACCOUNT</td>';
-    echo '<td></td>';
-    echo '<td>FIXED ASSETS</td>';
-    echo '<td></td>';
-    echo '</tr>';
-    
-    // Capital accounts with fixed assets
-    $maxRows = max(count($organizedData['capital_accounts']), count($organizedData['fixed_assets']));
-    
-    for ($i = 0; $i < $maxRows; $i++) {
-        echo '<tr>';
-        
-        // Capital account
-        if ($i < count($organizedData['capital_accounts'])) {
-            $capital = $organizedData['capital_accounts'][$i];
-            echo '<td>' . htmlspecialchars($capital['account_name']) . '</td>';
-            echo '<td align="right">' . number_format($capital['balance'], 2) . '</td>';
-        } else {
-            echo '<td></td><td></td>';
-        }
-        
-        // Fixed asset
-        if ($i < count($organizedData['fixed_assets'])) {
-            $asset = $organizedData['fixed_assets'][$i];
-            echo '<td>' . htmlspecialchars($asset['account_name']) . '</td>';
-            echo '<td align="right">' . number_format($asset['balance'], 2) . '</td>';
-        } else {
-            echo '<td></td><td></td>';
-        }
-        
-        echo '</tr>';
-    }
-    
-    // Capital total
-    echo '<tr>';
-    echo '<td></td>';
-    echo '<td align="right" style="font-weight:bold;">' . number_format($organizedData['totals']['capital'], 2) . '</td>';
-    echo '<td></td><td></td>';
-    echo '</tr>';
-    
-    // Current liabilities section
-    echo '<tr style="background-color:#e6f3ff; font-weight:bold;">';
-    echo '<td>PARTNERS CURRENT A/C.</td>';
-    echo '<td></td>';
-    echo '<td>CURRENT ASSETS</td>';
-    echo '<td></td>';
-    echo '</tr>';
-    
-    // Current liabilities with current assets
-    $maxRows = max(count($organizedData['current_liabilities']), count($organizedData['current_assets']));
-    
-    for ($i = 0; $i < $maxRows; $i++) {
-        echo '<tr>';
-        
-        // Current liability
-        if ($i < count($organizedData['current_liabilities'])) {
-            $liability = $organizedData['current_liabilities'][$i];
-            echo '<td>' . htmlspecialchars($liability['account_name']) . '</td>';
-            echo '<td align="right">' . number_format($liability['balance'], 2) . '</td>';
-        } else {
-            echo '<td></td><td></td>';
-        }
-        
-        // Current asset
-        if ($i < count($organizedData['current_assets'])) {
-            $asset = $organizedData['current_assets'][$i];
-            echo '<td>' . htmlspecialchars($asset['account_name']) . '</td>';
-            echo '<td align="right">' . number_format($asset['balance'], 2) . '</td>';
-        } else {
-            echo '<td></td><td></td>';
-        }
-        
-        echo '</tr>';
-    }
-    
-    // Totals
-    echo '<tr style="background-color:#fff2cc; font-weight:bold;">';
-    echo '<td>Total</td>';
-    echo '<td align="right">' . number_format($organizedData['totals']['total_liab_equity'], 2) . '</td>';
-    echo '<td>Total</td>';
-    echo '<td align="right">' . number_format($organizedData['totals']['total_assets'], 2) . '</td>';
-    echo '</tr>';
-    
-    echo '</table>';
-    
-    // Footer
-    echo '<br><table border="0" width="100%">';
-    echo '<tr>';
-    echo '<td width="50%">Place:Irinjalakuda</td>';
-    echo '<td width="50%" align="right">As per our report even date attached</td>';
-    echo '</tr>';
-    echo '<tr>';
-    echo '<td>Date:' . date('d/m/Y') . '</td>';
-    echo '<td></td>';
-    echo '</tr>';
-    echo '</table>';
-    
-    echo '</body></html>';
-    exit;
-}
-
+// Clear output buffer for normal page display
+ob_end_flush();
 ?>
 
-<div class="container-fluid">
-    <div class="row">
-        <div class="col-12">
-            <!-- Header matching the image -->
-            <div class="text-center mb-4">
-                <h4 style="margin-bottom: 5px; font-weight: bold;">JAYALAKSHMI ENTERPRISES, THANISSERY, THRISSUR - KML REG NO.32080302832 (2508-0-413)</h4>
-                <h4 style="margin-bottom: 15px; text-decoration: underline; font-weight: bold;">
-                    BALANCE SHEET AS AT <?php echo strtoupper(date('jS F Y', strtotime($asOfDate))); ?>
-                </h4>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Filter Form -->
-    <div class="card mb-4">
-        <div class="card-header bg-primary text-white">
-            <h6 class="mb-0"><i class="fa fa-calendar"></i> As of Date</h6>
-        </div>
-        <div class="card-body">
-            <form method="GET" action="">
-                <div class="row">
-                    <div class="col-md-3">
-                        <label for="as_of_date" class="form-label">As of Date:</label>
-                        <input type="date" class="form-control" id="as_of_date" name="as_of_date" value="<?php echo $asOfDate; ?>" required>
-                    </div>
-                    <div class="col-md-6 d-flex align-items-end">
-                        <button type="submit" class="btn btn-info me-2">
-                            <i class="fa fa-refresh"></i> Generate
-                        </button>
-                        <a href="?as_of_date=<?php echo $asOfDate; ?>&export=pdf" class="btn btn-danger me-2">
-                            <i class="fa fa-file-pdf-o"></i> PDF
-                        </a>
-                        <a href="?as_of_date=<?php echo $asOfDate; ?>&export=excel" class="btn btn-success">
-                            <i class="fa fa-file-excel-o"></i> Excel
-                        </a>
-                    </div>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- Balance Sheet -->
-    <div class="card">
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-bordered mb-0" style="font-size: 11px;">
-                    <thead style="background-color: #f8f9fa;">
-                        <tr>
-                            <th style="width: 45%; text-align: center; border: 1px solid #000;">LIABILITIES</th>
-                            <th style="width: 15%; text-align: center; border: 1px solid #000;">AMOUNT</th>
-                            <th style="width: 25%; text-align: center; border: 1px solid #000;">ASSETS</th>
-                            <th style="width: 15%; text-align: center; border: 1px solid #000;">AMOUNT</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- Capital Account Section -->
-                        <tr style="background-color: #e6f3ff;">
-                            <td style="border: 1px solid #000; font-weight: bold; padding: 5px;">CAPITAL ACCOUNT</td>
-                            <td style="border: 1px solid #000;"></td>
-                            <td style="border: 1px solid #000; font-weight: bold; padding: 5px;">FIXED ASSETS</td>
-                            <td style="border: 1px solid #000;"></td>
-                        </tr>
-                        
-                        <!-- Capital accounts with fixed assets -->
-                        <?php 
-                        $maxRows = max(count($organizedData['capital_accounts']), count($organizedData['fixed_assets']));
-                        
-                        for ($i = 0; $i < $maxRows; $i++): ?>
-                        <tr>
-                            <!-- Capital account -->
-                            <?php if ($i < count($organizedData['capital_accounts'])): 
-                                $capital = $organizedData['capital_accounts'][$i]; ?>
-                                <td style="border: 1px solid #000; padding: 3px;"><?php echo htmlspecialchars($capital['account_name']); ?></td>
-                                <td style="border: 1px solid #000; text-align: right; padding: 3px;"><?php echo number_format($capital['balance'], 2); ?></td>
-                            <?php else: ?>
-                                <td style="border: 1px solid #000;"></td>
-                                <td style="border: 1px solid #000;"></td>
-                            <?php endif; ?>
-                            
-                            <!-- Fixed asset -->
-                            <?php if ($i < count($organizedData['fixed_assets'])): 
-                                $asset = $organizedData['fixed_assets'][$i]; ?>
-                                <td style="border: 1px solid #000; padding: 3px;"><?php echo htmlspecialchars($asset['account_name']); ?></td>
-                                <td style="border: 1px solid #000; text-align: right; padding: 3px;"><?php echo number_format($asset['balance'], 2); ?></td>
-                            <?php else: ?>
-                                <td style="border: 1px solid #000;"></td>
-                                <td style="border: 1px solid #000;"></td>
-                            <?php endif; ?>
-                        </tr>
-                        <?php endfor; ?>
-                        
-                        <!-- Capital Total -->
-                        <tr>
-                            <td style="border: 1px solid #000;"></td>
-                            <td style="border: 1px solid #000; text-align: right; padding: 3px; font-weight: bold;">
-                                <?php echo number_format($organizedData['totals']['capital'], 2); ?>
-                            </td>
-                            <td style="border: 1px solid #000;"></td>
-                            <td style="border: 1px solid #000;"></td>
-                        </tr>
-                        
-                        <!-- Partners Current A/C Section -->
-                        <tr style="background-color: #e6f3ff;">
-                            <td style="border: 1px solid #000; font-weight: bold; padding: 5px;">PARTNERS CURRENT A/C.</td>
-                            <td style="border: 1px solid #000;"></td>
-                            <td style="border: 1px solid #000; font-weight: bold; padding: 5px;">CURRENT ASSETS</td>
-                            <td style="border: 1px solid #000;"></td>
-                        </tr>
-                        
-                        <!-- Current liabilities with current assets -->
-                        <?php 
-                        $maxRows = max(count($organizedData['current_liabilities']), count($organizedData['current_assets']));
-                        
-                        for ($i = 0; $i < $maxRows; $i++): ?>
-                        <tr>
-                            <!-- Current liability -->
-                            <?php if ($i < count($organizedData['current_liabilities'])): 
-                                $liability = $organizedData['current_liabilities'][$i]; ?>
-                                <td style="border: 1px solid #000; padding: 3px;"><?php echo htmlspecialchars($liability['account_name']); ?></td>
-                                <td style="border: 1px solid #000; text-align: right; padding: 3px;"><?php echo number_format($liability['balance'], 2); ?></td>
-                            <?php else: ?>
-                                <td style="border: 1px solid #000;"></td>
-                                <td style="border: 1px solid #000;"></td>
-                            <?php endif; ?>
-                            
-                            <!-- Current asset -->
-                            <?php if ($i < count($organizedData['current_assets'])): 
-                                $asset = $organizedData['current_assets'][$i]; ?>
-                                <td style="border: 1px solid #000; padding: 3px;"><?php echo htmlspecialchars($asset['account_name']); ?></td>
-                                <td style="border: 1px solid #000; text-align: right; padding: 3px;"><?php echo number_format($asset['balance'], 2); ?></td>
-                            <?php else: ?>
-                                <td style="border: 1px solid #000;"></td>
-                                <td style="border: 1px solid #000;"></td>
-                            <?php endif; ?>
-                        </tr>
-                        <?php endfor; ?>
-                        
-                        <!-- Totals Row -->
-                        <tr style="background-color: #fff2cc; font-weight: bold;">
-                            <td style="border: 1px solid #000; text-align: center; padding: 5px;">Total</td>
-                            <td style="border: 1px solid #000; text-align: right; padding: 5px;">
-                                <?php echo number_format($organizedData['totals']['total_liab_equity'], 2); ?>
-                            </td>
-                            <td style="border: 1px solid #000; text-align: center; padding: 5px;">Total</td>
-                            <td style="border: 1px solid #000; text-align: right; padding: 5px;">
-                                <?php echo number_format($organizedData['totals']['total_assets'], 2); ?>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-        <div class="card-footer bg-light">
-            <div class="row">
-                <div class="col-md-6">
-                    <small class="text-muted">
-                        Place: Irinjalakuda<br>
-                        Date: <?php echo date('d/m/Y'); ?>
-                    </small>
-                </div>
-                <div class="col-md-6 text-end">
-                    <small class="text-muted">
-                        Balance Status: 
-                        <?php if (abs($organizedData['totals']['total_assets'] - $organizedData['totals']['total_liab_equity']) < 0.01): ?>
-                            <span class="text-success">✓ Balanced</span>
-                        <?php else: ?>
-                            <span class="text-danger">✗ Not Balanced</span>
-                            <br>Difference: ₹<?php echo number_format(abs($organizedData['totals']['total_assets'] - $organizedData['totals']['total_liab_equity']), 2); ?>
-                        <?php endif; ?>
-                        <br>
-                        As per our report even date attached
-                    </small>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
 <style>
-.table th, .table td {
-    border: 1px solid #000 !important;
-    vertical-align: middle;
+.bs-container {
+    background: #f8f9fa;
+    min-height: 100vh;
+    padding: 20px 0;
 }
 
-.table thead th {
-    background-color: #f8f9fa;
-    color: #000;
+.bs-card {
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.bs-header {
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    color: white;
+    padding: 20px;
+    border-radius: 10px 10px 0 0;
+}
+
+.summary-cards {
+    margin: 20px 0;
+}
+
+.bs-table {
+    font-size: 0.9rem;
+}
+
+.bs-table th {
+    background: #343a40;
+    color: white;
+    font-weight: 600;
+    border: none;
+}
+
+.assets-section {
+    background: #e8f5e8;
+}
+
+.liabilities-section {
+    background: #fff5f5;
+}
+
+.equity-section {
+    background: #f0f8ff;
+}
+
+.category-header {
+    background: #6c757d !important;
+    color: white !important;
     font-weight: bold;
-    text-align: center;
 }
 
-.me-2 {
-    margin-right: 0.5rem;
+.total-row {
+    background: #f8f9fa !important;
+    font-weight: bold;
+    border-top: 2px solid #dee2e6;
 }
 
-.text-end {
-    text-align: right;
+.balance-indicator {
+    padding: 10px;
+    border-radius: 5px;
+    margin: 10px 0;
 }
 
-/* Print styles */
+.balanced {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.unbalanced {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
 @media print {
-    .card-header, 
-    .card-footer, 
-    .btn, 
-    .form-control,
-    .card:first-child {
+    .no-print {
         display: none !important;
     }
     
-    .table {
-        font-size: 9px;
+    .bs-container {
+        background: white;
+        padding: 0;
     }
 }
 </style>
 
-<?php
-include_once "inc/footer.php";
-ob_end_flush(); // Flush the output buffer and send output
-?>
+<div class="bs-container">
+    <div class="container-fluid">
+        
+        <!-- Page Header -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h2><i class="fa fa-balance-scale"></i> Balance Sheet</h2>
+                <p class="text-muted">View financial position and account balances as of a specific date</p>
+            </div>
+        </div>
+
+        <!-- Filter Component -->
+        <?php
+        $filterConfig = [
+            'show_financial_periods' => true,
+            'show_quick_dates' => false, // Balance sheet typically uses specific end dates
+            'show_export_buttons' => true,
+            'submit_button_text' => 'Generate Balance Sheet',
+            'submit_button_icon' => 'fa-balance-scale',
+            'export_formats' => ['pdf', 'excel']
+        ];
+        echo renderAccountingFilters($filterConfig);
+        ?>
+
+        <!-- Information Alert for Balance Sheet -->
+        <div class="alert alert-info no-print">
+            <h6><i class="fa fa-info-circle"></i> About Balance Sheet</h6>
+            <p class="mb-0">
+                The Balance Sheet shows your financial position <strong>as of a specific date</strong>. 
+                When using date ranges, the <strong>end date</strong> is used as the "as of" date. 
+                For financial periods, the <strong>period end date</strong> is used.
+            </p>
+        </div>
+
+        <!-- Error Message -->
+        <?php if ($filterParams['error_message']): ?>
+        <div class="alert alert-danger" role="alert">
+            <i class="fa fa-exclamation-triangle"></i> <?php echo htmlspecialchars($filterParams['error_message']); ?>
+        </div>
+        <?php endif; ?>
+
+        <!-- Balance Sheet Report -->
+        <?php if ($balance_sheet_data && !$filterParams['error_message']): ?>
+        <div class="bs-card">
+            <div class="bs-header">
+                <h4 class="mb-0">
+                    <i class="fas fa-balance-scale me-2"></i>Balance Sheet
+                </h4>
+                <?php if ($filterParams['period_info']): ?>
+                <p class="mb-0">As of <?php echo date('d/m/Y', strtotime($as_of_date)); ?></p>
+                <p class="mb-0 small">(<?php echo htmlspecialchars($filterParams['period_info']['period_name']); ?>)</p>
+                <?php if ($filterParams['period_info']['is_closed']): ?>
+                <p class="mb-0 small"><span class="badge bg-secondary">Period Closed</span></p>
+                <?php endif; ?>
+                <?php else: ?>
+                <p class="mb-0">As of <?php echo date('d/m/Y', strtotime($as_of_date)); ?></p>
+                <?php endif; ?>
+            </div>
+            
+            <div class="card-body">
+                <!-- Balance Indicator -->
+                <div class="balance-indicator <?php echo $balance_sheet_data['is_balanced'] ? 'balanced' : 'unbalanced'; ?>">
+                    <h6>
+                        <i class="fa fa-<?php echo $balance_sheet_data['is_balanced'] ? 'check-circle' : 'exclamation-triangle'; ?>"></i>
+                        Balance Status: <?php echo $balance_sheet_data['is_balanced'] ? 'BALANCED' : 'UNBALANCED'; ?>
+                    </h6>
+                    <?php if (!$balance_sheet_data['is_balanced']): ?>
+                    <p class="mb-0">
+                        Difference: ₹<?php echo number_format(abs($balance_sheet_data['total_assets'] - $balance_sheet_data['total_liabilities_equity']), 2); ?>
+                    </p>
+                    <?php endif; ?>
+                </div>
+
+                <!-- Summary Cards -->
+                <div class="summary-cards">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="card border-success">
+                                <div class="card-body text-center">
+                                    <h6 class="text-success">Total Assets</h6>
+                                    <h4 class="text-success">₹<?php echo number_format($balance_sheet_data['total_assets'], 2); ?></h4>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card border-danger">
+                                <div class="card-body text-center">
+                                    <h6 class="text-danger">Total Liabilities</h6>
+                                    <h4 class="text-danger">₹<?php echo number_format($balance_sheet_data['total_liabilities'], 2); ?></h4>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card border-primary">
+                                <div class="card-body text-center">
+                                    <h6 class="text-primary">Total Equity</h6>
+                                    <h4 class="text-primary">₹<?php echo number_format($balance_sheet_data['total_equity'], 2); ?></h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Balance Sheet Table -->
+                <div class="table-responsive">
+                    <table class="table table-bordered bs-table">
+                        <thead>
+                            <tr>
+                                <th width="60%">ACCOUNT</th>
+                                <th width="40%">AMOUNT (₹)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- ASSETS SECTION -->
+                            <tr class="category-header">
+                                <td colspan="2"><strong>ASSETS</strong></td>
+                            </tr>
+                            
+                            <!-- Current Assets -->
+                            <?php if (!empty($balance_sheet_data['current_assets'])): ?>
+                            <tr class="assets-section">
+                                <td><strong>Current Assets:</strong></td>
+                                <td></td>
+                            </tr>
+                            <?php foreach ($balance_sheet_data['current_assets'] as $asset): ?>
+                            <tr class="assets-section">
+                                <td style="padding-left: 30px;"><?php echo htmlspecialchars($asset['account_name']); ?></td>
+                                <td class="text-end"><?php echo number_format($asset['balance'], 2); ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                            <tr class="assets-section">
+                                <td style="padding-left: 20px;"><strong>Total Current Assets</strong></td>
+                                <td class="text-end"><strong><?php echo number_format($balance_sheet_data['total_current_assets'], 2); ?></strong></td>
+                            </tr>
+                            <?php endif; ?>
+                            
+                            <!-- Fixed Assets -->
+                            <?php if (!empty($balance_sheet_data['fixed_assets'])): ?>
+                            <tr class="assets-section">
+                                <td><strong>Fixed Assets:</strong></td>
+                                <td></td>
+                            </tr>
+                            <?php foreach ($balance_sheet_data['fixed_assets'] as $asset): ?>
+                            <tr class="assets-section">
+                                <td style="padding-left: 30px;"><?php echo htmlspecialchars($asset['account_name']); ?></td>
+                                <td class="text-end"><?php echo number_format($asset['balance'], 2); ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                            <tr class="assets-section">
+                                <td style="padding-left: 20px;"><strong>Total Fixed Assets</strong></td>
+                                <td class="text-end"><strong><?php echo number_format($balance_sheet_data['total_fixed_assets'], 2); ?></strong></td>
+                            </tr>
+                            <?php endif; ?>
+                            
+                            <!-- Other Assets -->
+                            <?php if (!empty($balance_sheet_data['other_assets'])): ?>
+                            <?php foreach ($balance_sheet_data['other_assets'] as $asset): ?>
+                            <tr class="assets-section">
+                                <td style="padding-left: 20px;"><?php echo htmlspecialchars($asset['account_name']); ?></td>
+                                <td class="text-end"><?php echo number_format($asset['balance'], 2); ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                            <?php endif; ?>
+                            
+                            <!-- Total Assets -->
+                            <tr class="total-row">
+                                <td><strong>TOTAL ASSETS</strong></td>
+                                <td class="text-end"><strong><?php echo number_format($balance_sheet_data['total_assets'], 2); ?></strong></td>
+                            </tr>
+                            
+                            <!-- LIABILITIES SECTION -->
+                            <tr class="category-header">
+                                <td colspan="2"><strong>LIABILITIES</strong></td>
+                            </tr>
+                            
+                            <!-- Current Liabilities -->
+                            <?php if (!empty($balance_sheet_data['current_liabilities'])): ?>
+                            <tr class="liabilities-section">
+                                <td><strong>Current Liabilities:</strong></td>
+                                <td></td>
+                            </tr>
+                            <?php foreach ($balance_sheet_data['current_liabilities'] as $liability): ?>
+                            <tr class="liabilities-section">
+                                <td style="padding-left: 30px;"><?php echo htmlspecialchars($liability['account_name']); ?></td>
+                                <td class="text-end"><?php echo number_format($liability['balance'], 2); ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                            <tr class="liabilities-section">
+                                <td style="padding-left: 20px;"><strong>Total Current Liabilities</strong></td>
+                                <td class="text-end"><strong><?php echo number_format($balance_sheet_data['total_current_liabilities'], 2); ?></strong></td>
+                            </tr>
+                            <?php endif; ?>
+                            
+                            <!-- Long-term Liabilities -->
+                            <?php if (!empty($balance_sheet_data['long_term_liabilities'])): ?>
+                            <tr class="liabilities-section">
+                                <td><strong>Long-term Liabilities:</strong></td>
+                                <td></td>
+                            </tr>
+                            <?php foreach ($balance_sheet_data['long_term_liabilities'] as $liability): ?>
+                            <tr class="liabilities-section">
+                                <td style="padding-left: 30px;"><?php echo htmlspecialchars($liability['account_name']); ?></td>
+                                <td class="text-end"><?php echo number_format($liability['balance'], 2); ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                            <tr class="liabilities-section">
+                                <td style="padding-left: 20px;"><strong>Total Long-term Liabilities</strong></td>
+                                <td class="text-end"><strong><?php echo number_format($balance_sheet_data['total_long_term_liabilities'], 2); ?></strong></td>
+                            </tr>
+                            <?php endif; ?>
+                            
+                            <!-- Total Liabilities -->
+                            <tr class="liabilities-section">
+                                <td><strong>Total Liabilities</strong></td>
+                                <td class="text-end"><strong><?php echo number_format($balance_sheet_data['total_liabilities'], 2); ?></strong></td>
+                            </tr>
+                            
+                            <!-- EQUITY SECTION -->
+                            <tr class="category-header">
+                                <td colspan="2"><strong>EQUITY</strong></td>
+                            </tr>
+                            
+                            <?php foreach ($balance_sheet_data['equity'] as $equity): ?>
+                            <tr class="equity-section">
+                                <td style="padding-left: 20px;"><?php echo htmlspecialchars($equity['account_name']); ?></td>
+                                <td class="text-end"><?php echo number_format($equity['balance'], 2); ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                            
+                            <!-- Total Equity -->
+                            <tr class="equity-section">
+                                <td><strong>Total Equity</strong></td>
+                                <td class="text-end"><strong><?php echo number_format($balance_sheet_data['total_equity'], 2); ?></strong></td>
+                            </tr>
+                            
+                            <!-- Total Liabilities & Equity -->
+                            <tr class="total-row">
+                                <td><strong>TOTAL LIABILITIES & EQUITY</strong></td>
+                                <td class="text-end"><strong><?php echo number_format($balance_sheet_data['total_liabilities_equity'], 2); ?></strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Financial Ratios (if data exists) -->
+                <?php if ($balance_sheet_data['total_assets'] > 0): ?>
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div class="card border-info">
+                            <div class="card-header bg-info text-white">
+                                <h6 class="mb-0"><i class="fa fa-calculator"></i> Key Financial Ratios</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <?php
+                                    $current_assets_total = $balance_sheet_data['total_current_assets'] ?? 0;
+                                    $current_liabilities_total = $balance_sheet_data['total_current_liabilities'] ?? 0;
+                                    $total_liabilities = $balance_sheet_data['total_liabilities'] ?? 0;
+                                    $total_equity = $balance_sheet_data['total_equity'] ?? 0;
+                                    $total_assets = $balance_sheet_data['total_assets'] ?? 0;
+                                    
+                                    $current_ratio = $current_liabilities_total > 0 ? 
+                                        $current_assets_total / $current_liabilities_total : 0;
+                                    $debt_to_equity = $total_equity > 0 ? 
+                                        $total_liabilities / $total_equity : 0;
+                                    $equity_ratio = $total_assets > 0 ? 
+                                        $total_equity / $total_assets : 0;
+                                    ?>
+                                    <div class="col-md-3">
+                                        <div class="text-center">
+                                            <h6>Current Ratio</h6>
+                                            <h5 class="text-<?php echo $current_ratio >= 2 ? 'success' : ($current_ratio >= 1 ? 'warning' : 'danger'); ?>">
+                                                <?php echo number_format($current_ratio, 2); ?>
+                                            </h5>
+                                            <small class="text-muted">
+                                                <?php echo $current_ratio >= 2 ? 'Good' : ($current_ratio >= 1 ? 'Fair' : 'Poor'); ?>
+                                            </small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="text-center">
+                                            <h6>Debt-to-Equity</h6>
+                                            <h5 class="text-<?php echo $debt_to_equity <= 1 ? 'success' : ($debt_to_equity <= 2 ? 'warning' : 'danger'); ?>">
+                                                <?php echo number_format($debt_to_equity, 2); ?>
+                                            </h5>
+                                            <small class="text-muted">
+                                                <?php echo $debt_to_equity <= 1 ? 'Conservative' : ($debt_to_equity <= 2 ? 'Moderate' : 'High'); ?>
+                                            </small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="text-center">
+                                            <h6>Equity Ratio</h6>
+                                            <h5 class="text-<?php echo $equity_ratio >= 0.5 ? 'success' : ($equity_ratio >= 0.3 ? 'warning' : 'danger'); ?>">
+                                                <?php echo number_format($equity_ratio * 100, 1); ?>%
+                                            </h5>
+                                            <small class="text-muted">Owner's Share</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="text-center">
+                                            <h6>Total Assets</h6>
+                                            <h5 class="text-info">₹<?php echo number_format($total_assets, 0); ?></h5>
+                                            <small class="text-muted">Business Size</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <?php endif; ?>
+
+                <!-- Period Information -->
+                <?php if ($filterParams['period_info']): ?>
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <div class="alert alert-info">
+                            <h6><i class="fa fa-info-circle"></i> Financial Period Information</h6>
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <strong>Period:</strong> <?php echo htmlspecialchars($filterParams['period_info']['period_name']); ?>
+                                </div>
+                                <div class="col-md-3">
+                                    <strong>As of Date:</strong> <?php echo date('M d, Y', strtotime($as_of_date)); ?>
+                                </div>
+                                <div class="col-md-3">
+                                    <strong>Status:</strong> 
+                                    <span class="badge bg-<?php echo $filterParams['period_info']['is_closed'] ? 'secondary' : 'success'; ?>">
+                                        <?php echo $filterParams['period_info']['is_closed'] ? 'Closed' : 'Open'; ?>
+                                    </span>
+                                </div>
+                                <div class="col-md-3">
+                                    <strong>Balance Status:</strong> 
+                                    <span class="badge bg-<?php echo $balance_sheet_data['is_balanced'] ? 'success' : 'danger'; ?>">
+                                        <?php echo $balance_sheet_data['is_balanced'] ? 'Balanced' : 'Unbalanced'; ?>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+
+    </div>
+</div>
+
+<?php include_once "inc/footer.php"; ?>
