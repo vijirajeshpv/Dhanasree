@@ -57,65 +57,310 @@ class AccountingReports extends AccountingCore
     /**
      * Get ledger entries for a specific account
      */
-    public function getLedger($account_id, $start_date, $end_date)
-    {
-        // Get account details
-        $account_query = "SELECT * FROM tbl_accounts WHERE id = '$account_id'";
-        $account_result = $this->db->select($account_query);
-        $account = $account_result ? $account_result->fetch_assoc() : null;
 
-        // Get opening balance
-        $opening_date = date('Y-m-d', strtotime($start_date . ' -1 day'));
-        $opening_balance = $this->getAccountBalance($account_id, $opening_date);
-
-        // Get transactions with contra accounts
-        $query = "SELECT 
-                    t.id,
-                    t.transaction_date,
-                    t.description as trans_desc,
-                    t.reference_no,
-                    td.debit,
-                    td.credit,
-                    td.description as detail_desc,
-                    GROUP_CONCAT(
-                        CASE 
-                            WHEN td2.account_id != td.account_id 
-                            THEN CONCAT(a2.account_name, ' (', 
-                                IF(td2.debit > 0, 'Dr', 'Cr'), ' ', 
-                                IF(td2.debit > 0, td2.debit, td2.credit), ')')
-                        END SEPARATOR ', '
-                    ) as contra_accounts
-                  FROM tbl_transaction_details td
-                  JOIN tbl_transactions t ON td.transaction_id = t.id
-                  LEFT JOIN tbl_transaction_details td2 ON td2.transaction_id = t.id
-                  LEFT JOIN tbl_accounts a2 ON td2.account_id = a2.id
-                  WHERE td.account_id = '$account_id'
-                  AND t.transaction_date BETWEEN '$start_date' AND '$end_date'
-                  AND t.status = 'Posted'
-                  GROUP BY t.id, td.id
-                  ORDER BY t.transaction_date, t.id";
-
-        $result = $this->db->select($query);
+/**
+ * Get ledger entries for a specific account with enhanced filtering
+ * @param int $account_id - Account ID
+ * @param string $start_date - Start date (optional if using financial period)
+ * @param string $end_date - End date (optional if using financial period)  
+ * @param int $financial_period_id - Financial period ID (optional if using dates)
+ * @param bool $include_draft - Include draft transactions (default: false)
+ * @return array - Ledger data with entries, balances, and metadata
+ */
+public function getLedger($account_id, $start_date = null, $end_date = null, $financial_period_id = null, $include_draft = false)
+{
+    // Validate inputs
+    $account_id = $this->fm->validation($account_id);
+    
+    // Get account details
+    $account_query = "SELECT * FROM tbl_accounts WHERE id = '$account_id' AND is_active = TRUE";
+    $account_result = $this->db->select($account_query);
+    
+    if (!$account_result) {
+        return ['error' => 'Account not found or inactive'];
+    }
+    
+    $account = $account_result->fetch_assoc();
+    
+    // Determine date range based on input
+    if ($financial_period_id !== null) {
+        // Use financial period
+        $financial_period_id = $this->fm->validation($financial_period_id);
+        $period_query = "SELECT * FROM tbl_financial_periods WHERE id = '$financial_period_id'";
+        $period_result = $this->db->select($period_query);
         
-        // Calculate running balance
-        $entries = [];
-        $running_balance = $opening_balance;
+        if (!$period_result) {
+            return ['error' => 'Financial period not found'];
+        }
         
-        if ($result) {
-            while ($row = $result->fetch_assoc()) {
-                $running_balance += ($row['debit'] - $row['credit']);
-                $row['balance'] = $running_balance;
-                $entries[] = $row;
+        $period = $period_result->fetch_assoc();
+        $start_date = $period['start_date'];
+        $end_date = $period['end_date'];
+        $filter_type = 'financial_period';
+        $filter_info = [
+            'type' => 'Financial Period',
+            'name' => $period['period_name'],
+            'start_date' => $start_date,
+            'end_date' => $end_date,
+            'is_closed' => $period['is_closed']
+        ];
+    } else {
+        // Use date range
+        if ($start_date === null || $end_date === null) {
+            // Default to current financial year if no dates provided
+            $current_year = date('Y');
+            $current_month = date('m');
+            
+            if ($current_month >= 4) {
+                $start_date = $current_year . '-04-01';
+                $end_date = ($current_year + 1) . '-03-31';
+            } else {
+                $start_date = ($current_year - 1) . '-04-01';
+                $end_date = $current_year . '-03-31';
             }
         }
-
-        return [
-            'account' => $account,
-            'opening_balance' => $opening_balance,
-            'entries' => $entries,
-            'closing_balance' => $running_balance
+        
+        $start_date = $this->fm->validation($start_date);
+        $end_date = $this->fm->validation($end_date);
+        $filter_type = 'date_range';
+        $filter_info = [
+            'type' => 'Date Range',
+            'start_date' => $start_date,
+            'end_date' => $end_date
         ];
     }
+    
+    // Build status condition
+    $status_condition = $include_draft ? "t.status IN ('Posted', 'Draft')" : "t.status = 'Posted'";
+    
+    // Get opening balance (transactions before start date)
+    $opening_query = "SELECT 
+                        COALESCE(SUM(td.debit), 0) - COALESCE(SUM(td.credit), 0) as opening_balance
+                      FROM tbl_transaction_details td
+                      JOIN tbl_transactions t ON td.transaction_id = t.id
+                      WHERE td.account_id = '$account_id'
+                      AND t.transaction_date < '$start_date'
+                      AND $status_condition";
+    
+    $opening_result = $this->db->select($opening_query);
+    $opening_balance = $opening_result ? $opening_result->fetch_assoc()['opening_balance'] : 0;
+    
+    // Get ledger entries for the specified period
+    $ledger_query = "SELECT 
+                        t.id,
+                        t.transaction_date,
+                        t.description,
+                        t.reference_no,
+                        t.transaction_type,
+                        t.status,
+                        td.debit,
+                        td.credit,
+                        td.description as detail_description,
+                        u.name as created_by_name
+                     FROM tbl_transaction_details td
+                     JOIN tbl_transactions t ON td.transaction_id = t.id
+                     LEFT JOIN tbl_user u ON t.created_by = u.id
+                     WHERE td.account_id = '$account_id'
+                     AND t.transaction_date BETWEEN '$start_date' AND '$end_date'
+                     AND $status_condition
+                     ORDER BY t.transaction_date ASC, t.id ASC";
+    
+    $ledger_result = $this->db->select($ledger_query);
+    
+    // Process entries and calculate running balance
+    $entries = [];
+    $running_balance = $opening_balance;
+    $total_debit = 0;
+    $total_credit = 0;
+    
+    if ($ledger_result) {
+        while ($row = $ledger_result->fetch_assoc()) {
+            // Calculate balance based on account type
+            if (in_array($account['account_type'], ['Asset', 'Expense'])) {
+                $running_balance += ($row['debit'] - $row['credit']);
+            } else {
+                $running_balance += ($row['credit'] - $row['debit']);
+            }
+            
+            $row['running_balance'] = $running_balance;
+            $total_debit += $row['debit'];
+            $total_credit += $row['credit'];
+            
+            $entries[] = $row;
+        }
+    }
+    
+    $closing_balance = $running_balance;
+    
+    // Get period summary statistics
+    $period_totals = [
+        'total_debit' => $total_debit,
+        'total_credit' => $total_credit,
+        'net_movement' => $total_debit - $total_credit,
+        'transaction_count' => count($entries)
+    ];
+    
+    // Get related account information for contra entries
+    $related_accounts = $this->getRelatedAccounts($account_id, $start_date, $end_date, $status_condition);
+    
+    return [
+        'account' => $account,
+        'filter_info' => $filter_info,
+        'opening_balance' => $opening_balance,
+        'closing_balance' => $closing_balance,
+        'entries' => $entries,
+        'period_totals' => $period_totals,
+        'related_accounts' => $related_accounts,
+        'generated_at' => date('Y-m-d H:i:s'),
+        'generated_by' => isset($_SESSION['user_name']) ? $_SESSION['user_name'] : 'System'
+    ];
+}
+
+/**
+ * Get accounts that have transactions with the specified account (contra accounts)
+ * @param int $account_id
+ * @param string $start_date  
+ * @param string $end_date
+ * @param string $status_condition
+ * @return array
+ */
+private function getRelatedAccounts($account_id, $start_date, $end_date, $status_condition)
+{
+    $query = "SELECT 
+                a.account_code,
+                a.account_name,
+                a.account_type,
+                COUNT(DISTINCT t.id) as transaction_count,
+                SUM(td2.debit) as total_debit,
+                SUM(td2.credit) as total_credit
+              FROM tbl_transaction_details td1
+              JOIN tbl_transactions t ON td1.transaction_id = t.id
+              JOIN tbl_transaction_details td2 ON t.id = td2.transaction_id
+              JOIN tbl_accounts a ON td2.account_id = a.id
+              WHERE td1.account_id = '$account_id'
+              AND td2.account_id != '$account_id'
+              AND t.transaction_date BETWEEN '$start_date' AND '$end_date'
+              AND $status_condition
+              GROUP BY a.id, a.account_code, a.account_name, a.account_type
+              ORDER BY transaction_count DESC, a.account_name";
+              
+    $result = $this->db->select($query);
+    $related = [];
+    
+    if ($result) {
+        while ($row = $result->fetch_assoc()) {
+            $related[] = $row;
+        }
+    }
+    
+    return $related;
+}
+
+/**
+ * Get multiple account ledgers for comparison
+ * @param array $account_ids - Array of account IDs
+ * @param string $start_date
+ * @param string $end_date
+ * @param int $financial_period_id
+ * @return array
+ */
+public function getMultiAccountLedger($account_ids, $start_date = null, $end_date = null, $financial_period_id = null)
+{
+    $ledgers = [];
+    $summary = [
+        'total_accounts' => count($account_ids),
+        'total_opening_balance' => 0,
+        'total_closing_balance' => 0,
+        'total_transactions' => 0
+    ];
+    
+    foreach ($account_ids as $account_id) {
+        $ledger = $this->getLedger($account_id, $start_date, $end_date, $financial_period_id);
+        
+        if (!isset($ledger['error'])) {
+            $ledgers[] = $ledger;
+            $summary['total_opening_balance'] += $ledger['opening_balance'];
+            $summary['total_closing_balance'] += $ledger['closing_balance'];
+            $summary['total_transactions'] += $ledger['period_totals']['transaction_count'];
+        }
+    }
+    
+    return [
+        'ledgers' => $ledgers,
+        'summary' => $summary,
+        'filter_info' => isset($ledgers[0]['filter_info']) ? $ledgers[0]['filter_info'] : null
+    ];
+}
+
+/**
+ * Export ledger to CSV format
+ * @param int $account_id
+ * @param string $start_date
+ * @param string $end_date
+ * @param int $financial_period_id
+ */
+public function exportLedgerToCSV($account_id, $start_date = null, $end_date = null, $financial_period_id = null)
+{
+    $ledger = $this->getLedger($account_id, $start_date, $end_date, $financial_period_id);
+    
+    if (isset($ledger['error'])) {
+        return false;
+    }
+    
+    $account_name = str_replace(' ', '_', $ledger['account']['account_name']);
+    $filename = "ledger_{$account_name}_" . date('Ymd_His') . '.csv';
+    
+    header('Content-Type: text/csv');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    
+    $output = fopen('php://output', 'w');
+    
+    // CSV Headers
+    fputcsv($output, [
+        'Date', 'Description', 'Reference', 'Type', 'Debit', 'Credit', 'Balance', 'Status'
+    ]);
+    
+    // Opening balance
+    fputcsv($output, [
+        $ledger['filter_info']['start_date'],
+        'Opening Balance',
+        '',
+        '',
+        $ledger['opening_balance'] > 0 ? $ledger['opening_balance'] : '',
+        $ledger['opening_balance'] < 0 ? abs($ledger['opening_balance']) : '',
+        $ledger['opening_balance'],
+        ''
+    ]);
+    
+    // Transactions
+    foreach ($ledger['entries'] as $entry) {
+        fputcsv($output, [
+            $entry['transaction_date'],
+            $entry['description'],
+            $entry['reference_no'],
+            $entry['transaction_type'],
+            $entry['debit'] > 0 ? $entry['debit'] : '',
+            $entry['credit'] > 0 ? $entry['credit'] : '',
+            $entry['running_balance'],
+            $entry['status']
+        ]);
+    }
+    
+    // Closing balance
+    fputcsv($output, [
+        $ledger['filter_info']['end_date'],
+        'Closing Balance',
+        '',
+        '',
+        $ledger['closing_balance'] > 0 ? $ledger['closing_balance'] : '',
+        $ledger['closing_balance'] < 0 ? abs($ledger['closing_balance']) : '',
+        $ledger['closing_balance'],
+        ''
+    ]);
+    
+    fclose($output);
+    return true;
+}
 
     /**
      * Get trial balance as of a specific date

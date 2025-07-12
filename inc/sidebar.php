@@ -168,6 +168,9 @@
                   <li class="nav-item">
                     <a class="nav-link" href="profit_loss_account.php">Profit & Loss Account</a>
                   </li>
+                  <li class="nav-item">
+                    <a class="nav-link" href="ledger.php">Ledger</a>
+                  </li>
 
                 </ul>
                 
