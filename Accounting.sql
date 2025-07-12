@@ -500,6 +500,12 @@ SET financial_period_id = (
 )
 WHERE financial_period_id IS NULL;
 
+ALTER TABLE tbl_reference_sequences 
+ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+
+-- Add index for better performance
+CREATE INDEX IF NOT EXISTS idx_sequence_type ON tbl_reference_sequences(sequence_type);
+
 -- 5. Create view for period-wise transactions
 CREATE VIEW vw_period_transactions AS
 SELECT 

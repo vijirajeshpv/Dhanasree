@@ -48,23 +48,6 @@ class AccountingHelper extends AccountingCore
     }
 
     /**
-     * Get all financial periods
-     */
-    public function getFinancialPeriods()
-    {
-        $query = "SELECT *, 
-                  CASE 
-                    WHEN CURDATE() BETWEEN start_date AND end_date THEN 'Current'
-                    WHEN end_date < CURDATE() THEN 'Past'
-                    ELSE 'Future'
-                  END as period_status
-                  FROM tbl_financial_periods 
-                  ORDER BY start_date DESC";
-        
-        return $this->db->select($query);
-    }
-
-    /**
      * Get current financial period
      */
     public function getCurrentPeriod()
@@ -403,28 +386,296 @@ class AccountingHelper extends AccountingCore
     /**
      * Generate unique reference number
      */
-    public function generateReferenceNumber($prefix)
-    {
-        $date_part = date('Ymd');
+    public function generateReferenceNumber($type, $options = []) {
+        $type = $this->fm->validation($type);
         
-        // Get the last reference number for today
-        $query = "SELECT reference_no 
-                  FROM tbl_transactions 
-                  WHERE reference_no LIKE '$prefix-$date_part-%' 
-                  ORDER BY id DESC 
+        // Default options
+        $defaults = [
+            'prefix' => '',
+            'include_date' => false,
+            'date_format' => 'Ymd',      // YYYYMMDD
+            'sequence_length' => 4,       // 0001, 0002, etc.
+            'reset_daily' => false        // Reset sequence each day
+        ];
+        
+        $options = array_merge($defaults, $options);
+        
+        // Set default prefix if not provided
+        if (empty($options['prefix'])) {
+            $options['prefix'] = strtoupper($type);
+        }
+        
+        // Create sequence key
+        $sequence_key = $type;
+        if ($options['reset_daily']) {
+            $sequence_key .= '_' . date('Ymd');
+        }
+        
+        // Start transaction for thread safety
+        $this->db->query("START TRANSACTION");
+        
+        try {
+            // Get or create sequence
+            $query = "SELECT last_number FROM tbl_reference_sequences 
+                      WHERE sequence_type = '$sequence_key' FOR UPDATE";
+            $result = $this->db->select($query);
+            
+            if ($result && $row = $result->fetch_assoc()) {
+                $next_number = $row['last_number'] + 1;
+                
+                // Update sequence
+                $update_query = "UPDATE tbl_reference_sequences 
+                                SET last_number = $next_number,
+                                    updated_at = NOW()
+                                WHERE sequence_type = '$sequence_key'";
+                $this->db->update($update_query);
+            } else {
+                // Create new sequence
+                $next_number = 1;
+                $insert_query = "INSERT INTO tbl_reference_sequences 
+                                (sequence_type, prefix, last_number) 
+                                VALUES ('$sequence_key', '{$options['prefix']}', 1)";
+                $this->db->insert($insert_query);
+            }
+            
+            $this->db->query("COMMIT");
+            
+        } catch (Exception $e) {
+            $this->db->query("ROLLBACK");
+            throw new Exception("Failed to generate reference number: " . $e->getMessage());
+        }
+        
+        // Build reference number
+        $reference = $options['prefix'];
+        
+        if ($options['include_date']) {
+            $reference .= '-' . date($options['date_format']);
+        }
+        
+        $reference .= '-' . str_pad($next_number, $options['sequence_length'], '0', STR_PAD_LEFT);
+        
+        return $reference;
+    }
+
+    /**
+     * Get all financial periods
+     */
+    public function getFinancialPeriods() {
+        $query = "SELECT 
+                    id, 
+                    period_name, 
+                    start_date, 
+                    end_date, 
+                    is_closed,
+                    created_at,
+                    closed_at
+                  FROM tbl_financial_periods 
+                  ORDER BY start_date DESC";
+        
+        return $this->db->select($query);
+    }
+    
+    /**
+     * Get financial period by ID
+     */
+    public function getFinancialPeriodById($period_id) {
+        $period_id = $this->fm->validation($period_id);
+        
+        $query = "SELECT 
+                    id, 
+                    period_name, 
+                    start_date, 
+                    end_date, 
+                    is_closed,
+                    created_at,
+                    closed_at
+                  FROM tbl_financial_periods 
+                  WHERE id = '$period_id'";
+        
+        $result = $this->db->select($query);
+        
+        if ($result) {
+            return $result->fetch_assoc();
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Get current open financial period
+     */
+    public function getCurrentFinancialPeriod() {
+        $query = "SELECT 
+                    id, 
+                    period_name, 
+                    start_date, 
+                    end_date, 
+                    is_closed
+                  FROM tbl_financial_periods 
+                  WHERE is_closed = 0 
+                  AND CURDATE() BETWEEN start_date AND end_date
+                  ORDER BY start_date DESC 
                   LIMIT 1";
         
         $result = $this->db->select($query);
         
         if ($result) {
-            $last_ref = $result->fetch_assoc()['reference_no'];
-            $parts = explode('-', $last_ref);
-            $sequence = isset($parts[2]) ? intval($parts[2]) + 1 : 1;
-        } else {
-            $sequence = 1;
+            return $result->fetch_assoc();
         }
         
-        return sprintf("%s-%s-%04d", $prefix, $date_part, $sequence);
+        return null;
+    }
+    
+    /**
+     * Get financial period for a specific date
+     */
+    public function getFinancialPeriodForDate($date) {
+        $date = $this->fm->validation($date);
+        
+        $query = "SELECT 
+                    id, 
+                    period_name, 
+                    start_date, 
+                    end_date, 
+                    is_closed
+                  FROM tbl_financial_periods 
+                  WHERE '$date' BETWEEN start_date AND end_date
+                  LIMIT 1";
+        
+        $result = $this->db->select($query);
+        
+        if ($result) {
+            return $result->fetch_assoc();
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Validate date range
+     */
+    public function validateDateRange($start_date, $end_date) {
+        if (empty($start_date) || empty($end_date)) {
+            return "Both start and end dates are required.";
+        }
+        
+        if (!strtotime($start_date) || !strtotime($end_date)) {
+            return "Invalid date format.";
+        }
+        
+        if (strtotime($start_date) > strtotime($end_date)) {
+            return "Start date cannot be later than end date.";
+        }
+        
+        return null; // No error
+    }
+    
+    /**
+     * Format period display name
+     */
+    public function formatPeriodDisplay($period) {
+        $status = $period['is_closed'] ? 'Closed' : 'Open';
+        $dates = date('M Y', strtotime($period['start_date'])) . ' - ' . date('M Y', strtotime($period['end_date']));
+        
+        return $period['period_name'] . ' (' . $dates . ') - ' . $status;
+    }
+    
+    /**
+     * Get accounts for dropdown
+     */
+    public function getAccountsForDropdown($account_type = null) {
+        $where_clause = "WHERE is_active = 1";
+        
+        if ($account_type) {
+            $account_type = $this->fm->validation($account_type);
+            $where_clause .= " AND account_type = '$account_type'";
+        }
+        
+        $query = "SELECT 
+                    id, 
+                    account_code, 
+                    account_name, 
+                    account_type
+                  FROM tbl_accounts 
+                  $where_clause
+                  ORDER BY account_type, account_code";
+        
+        return $this->db->select($query);
+    }
+    
+    /**
+     * Get account by ID
+     */
+    public function getAccountById($account_id) {
+        $account_id = $this->fm->validation($account_id);
+        
+        $query = "SELECT 
+                    id, 
+                    account_code, 
+                    account_name, 
+                    account_type,
+                    parent_account_id,
+                    is_active
+                  FROM tbl_accounts 
+                  WHERE id = '$account_id'";
+        
+        $result = $this->db->select($query);
+        
+        if ($result) {
+            return $result->fetch_assoc();
+        }
+        
+        return null;
+    }
+    
+    
+    /**
+     * Check if period is closed
+     */
+    public function isPeriodClosed($period_id) {
+        $period_id = $this->fm->validation($period_id);
+        
+        $query = "SELECT is_closed FROM tbl_financial_periods WHERE id = '$period_id'";
+        $result = $this->db->select($query);
+        
+        if ($result) {
+            $row = $result->fetch_assoc();
+            return (bool)$row['is_closed'];
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Get period summary
+     */
+    public function getPeriodSummary($period_id) {
+        $period_id = $this->fm->validation($period_id);
+        
+        $query = "SELECT 
+                    fp.period_name,
+                    fp.start_date,
+                    fp.end_date,
+                    fp.is_closed,
+                    COUNT(t.id) as transaction_count,
+                    COALESCE(SUM(CASE WHEN a.account_type = 'Income' THEN td.credit - td.debit ELSE 0 END), 0) as total_income,
+                    COALESCE(SUM(CASE WHEN a.account_type = 'Expense' THEN td.debit - td.credit ELSE 0 END), 0) as total_expenses
+                  FROM tbl_financial_periods fp
+                  LEFT JOIN tbl_transactions t ON fp.id = t.financial_period_id AND t.status = 'Posted'
+                  LEFT JOIN tbl_transaction_details td ON t.id = td.transaction_id
+                  LEFT JOIN tbl_accounts a ON td.account_id = a.id
+                  WHERE fp.id = '$period_id'
+                  GROUP BY fp.id";
+        
+        $result = $this->db->select($query);
+        
+        if ($result) {
+            $summary = $result->fetch_assoc();
+            $summary['net_profit'] = $summary['total_income'] - $summary['total_expenses'];
+            return $summary;
+        }
+        
+        return null;
     }
 }
 ?>

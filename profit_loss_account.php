@@ -1,60 +1,42 @@
 <?php
-// profit_loss_account.php - FIXED VERSION
+// profit_loss_account.php - Updated with Financial Period Support
 ob_start();
 include_once "inc/header.php";
 include_once "inc/sidebar.php";
 include_once "classes/accounting/PLAccountManager.php";
+include_once "components/accounting_filters.php";
 require('fpdf186/fpdf.php');
 
 $accountingReports = new PLAccountManager();
 
-// Initialize variables with proper defaults
-$start_date = '';
-$end_date = '';
-$export_format = '';
+// Get filter parameters using the common component
+$filterParams = getAccountingFilterParams();
 $pl_data = null;
-$errorMessage = '';
 
-// Handle form submission and parameters
-if ($_SERVER['REQUEST_METHOD'] == 'GET') {
-    // Check for export format first
-    $export_format = isset($_GET['export']) ? $_GET['export'] : '';
-    
-    // Get date parameters - with proper validation
-    if (isset($_GET['start_date']) && isset($_GET['end_date'])) {
-        $start_date = $_GET['start_date'];
-        $end_date = $_GET['end_date'];
-        
-        // Validate dates
-        if (empty($start_date) || empty($end_date)) {
-            $errorMessage = "Please select both start and end dates.";
-        } elseif (strtotime($start_date) > strtotime($end_date)) {
-            $errorMessage = "Start date cannot be later than end date.";
-        } else {
-            // Generate P&L data
-            $pl_data = $accountingReports->getProfitLossAccount($start_date, $end_date);
-        }
+// Generate P&L data if we have valid parameters
+if ($filterParams['has_data']) {
+    if ($filterParams['filter_type'] == 'financial_period') {
+        $pl_data = $accountingReports->getProfitLossAccountByPeriod($filterParams['financial_period_id']);
     } else {
-        // Set default dates (current month)
-        $start_date = date('Y-m-01');
-        $end_date = date('Y-m-t');
-        
-        // Generate P&L data with defaults
-        $pl_data = $accountingReports->getProfitLossAccount($start_date, $end_date);
+        $pl_data = $accountingReports->getProfitLossAccount($filterParams['start_date'], $filterParams['end_date']);
     }
 }
+
+// Check for export requests
+$export_format = isset($_GET['export']) ? $_GET['export'] : '';
 
 // Handle PDF Export
 if ($export_format == 'pdf' && $pl_data) {
     ob_end_clean();
     
     class PLAccountPDF extends FPDF {
-        private $startDate, $endDate;
+        private $startDate, $endDate, $periodInfo;
         
-        function __construct($start_date, $end_date) {
+        function __construct($start_date, $end_date, $period_info = null) {
             parent::__construct();
             $this->startDate = $start_date;
             $this->endDate = $end_date;
+            $this->periodInfo = $period_info;
         }
         
         function Header() {
@@ -63,7 +45,13 @@ if ($export_format == 'pdf' && $pl_data) {
             $this->SetFont('Arial', 'B', 12);
             $this->Cell(0, 8, 'PROFIT & LOSS ACCOUNT', 0, 1, 'C');
             $this->SetFont('Arial', '', 10);
-            $this->Cell(0, 6, 'For the period from ' . date('d/m/Y', strtotime($this->startDate)) . ' to ' . date('d/m/Y', strtotime($this->endDate)), 0, 1, 'C');
+            
+            if ($this->periodInfo) {
+                $this->Cell(0, 6, 'For ' . $this->periodInfo['period_name'], 0, 1, 'C');
+                $this->Cell(0, 6, '(' . date('d/m/Y', strtotime($this->startDate)) . ' to ' . date('d/m/Y', strtotime($this->endDate)) . ')', 0, 1, 'C');
+            } else {
+                $this->Cell(0, 6, 'For the period from ' . date('d/m/Y', strtotime($this->startDate)) . ' to ' . date('d/m/Y', strtotime($this->endDate)), 0, 1, 'C');
+            }
             $this->Ln(10);
         }
         
@@ -76,41 +64,29 @@ if ($export_format == 'pdf' && $pl_data) {
         }
         
         function PLTable($pl_data) {
-            // Set up the table structure with proper widths that fit in page
             $this->SetFont('Arial', 'B', 10);
             
-            // Table headers - adjusted widths to fit page (210mm page, 20mm margins = 170mm available)
+            // Table headers
             $this->Cell(70, 8, 'PARTICULARS', 1, 0, 'C');
             $this->Cell(25, 8, 'AMOUNT', 1, 0, 'C');
-            $this->Cell(5, 8, '', 0, 0); // Gap between tables
+            $this->Cell(5, 8, '', 0, 0);
             $this->Cell(70, 8, 'PARTICULARS', 1, 0, 'C');
             $this->Cell(25, 8, 'AMOUNT', 1, 1, 'C');
             
             $this->SetFont('Arial', '', 9);
             
-            // Prepare expense and income arrays
             $expenses = $pl_data['expenses'];
             $income = $pl_data['income'];
             
-            // Add Net Profit to expenses side if profit
+            // Add Net Profit/Loss to appropriate side
             if ($pl_data['net_profit'] > 0) {
-                $expenses[] = [
-                    'account_name' => 'Net Profit',
-                    'amount' => $pl_data['net_profit']
-                ];
-            }
-            
-            // Add Net Loss to income side if loss
-            if ($pl_data['net_profit'] < 0) {
-                $income[] = [
-                    'account_name' => 'Net Loss',
-                    'amount' => abs($pl_data['net_profit'])
-                ];
+                $expenses[] = ['account_name' => 'Net Profit', 'amount' => $pl_data['net_profit']];
+            } elseif ($pl_data['net_profit'] < 0) {
+                $income[] = ['account_name' => 'Net Loss', 'amount' => abs($pl_data['net_profit'])];
             }
             
             $max_rows = max(count($expenses), count($income));
             
-            // Display items
             for ($i = 0; $i < $max_rows; $i++) {
                 // Expenses (Left side)
                 if ($i < count($expenses)) {
@@ -121,7 +97,7 @@ if ($export_format == 'pdf' && $pl_data) {
                     $this->Cell(25, 6, '', 1, 0);
                 }
                 
-                $this->Cell(5, 6, '', 0, 0); // Gap
+                $this->Cell(5, 6, '', 0, 0);
                 
                 // Income (Right side)
                 if ($i < count($income)) {
@@ -143,10 +119,12 @@ if ($export_format == 'pdf' && $pl_data) {
         }
     }
     
-    $pdf = new PLAccountPDF($start_date, $end_date);
+    $pdf = new PLAccountPDF($filterParams['start_date'], $filterParams['end_date'], $filterParams['period_info']);
     $pdf->AddPage();
     $pdf->PLTable($pl_data);
-    $pdf->Output('D', 'Profit_Loss_Account_' . $start_date . '_to_' . $end_date . '.pdf');
+    
+    $filename = 'Profit_Loss_Account_' . $filterParams['start_date'] . '_to_' . $filterParams['end_date'] . '.pdf';
+    $pdf->Output('D', $filename);
     exit;
 }
 
@@ -154,8 +132,10 @@ if ($export_format == 'pdf' && $pl_data) {
 if ($export_format == 'excel' && $pl_data) {
     ob_end_clean();
     
+    $filename = 'Profit_Loss_Account_' . $filterParams['start_date'] . '_to_' . $filterParams['end_date'] . '.xls';
+    
     header('Content-Type: application/vnd.ms-excel');
-    header('Content-Disposition: attachment; filename="Profit_Loss_Account_' . $start_date . '_to_' . $end_date . '.xls"');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
     
     echo '<!DOCTYPE html>';
     echo '<html>';
@@ -166,7 +146,14 @@ if ($export_format == 'excel' && $pl_data) {
     echo '<table width="100%" style="border-collapse: collapse;">';
     echo '<tr><td colspan="4" style="text-align:center; font-weight:bold; font-size:14px;">JAYALAKSHMI ENTERPRISES</td></tr>';
     echo '<tr><td colspan="4" style="text-align:center; font-weight:bold; font-size:12px;">PROFIT & LOSS ACCOUNT</td></tr>';
-    echo '<tr><td colspan="4" style="text-align:center;">For the period from ' . date('d/m/Y', strtotime($start_date)) . ' to ' . date('d/m/Y', strtotime($end_date)) . '</td></tr>';
+    
+    if ($filterParams['period_info']) {
+        echo '<tr><td colspan="4" style="text-align:center;">For ' . htmlspecialchars($filterParams['period_info']['period_name']) . '</td></tr>';
+        echo '<tr><td colspan="4" style="text-align:center;">(' . date('d/m/Y', strtotime($filterParams['start_date'])) . ' to ' . date('d/m/Y', strtotime($filterParams['end_date'])) . ')</td></tr>';
+    } else {
+        echo '<tr><td colspan="4" style="text-align:center;">For the period from ' . date('d/m/Y', strtotime($filterParams['start_date'])) . ' to ' . date('d/m/Y', strtotime($filterParams['end_date'])) . '</td></tr>';
+    }
+    
     echo '<tr><td colspan="4">&nbsp;</td></tr>';
     
     // Column headers
@@ -177,48 +164,37 @@ if ($export_format == 'excel' && $pl_data) {
     echo '<td style="border:1px solid black; font-weight:bold; text-align:center; background-color:#f0f0f0; width:25%;">AMOUNT</td>';
     echo '</tr>';
     
-    // Prepare data
+    // Data rows
     $expenses = $pl_data['expenses'];
     $income = $pl_data['income'];
     
-    // Add Net Profit to expenses side if profit
     if ($pl_data['net_profit'] > 0) {
-        $expenses[] = [
-            'account_name' => 'Net Profit',
-            'amount' => $pl_data['net_profit']
-        ];
-    }
-    
-    // Add Net Loss to income side if loss
-    if ($pl_data['net_profit'] < 0) {
-        $income[] = [
-            'account_name' => 'Net Loss',
-            'amount' => abs($pl_data['net_profit'])
-        ];
+        $expenses[] = ['account_name' => 'Net Profit', 'amount' => $pl_data['net_profit']];
+    } elseif ($pl_data['net_profit'] < 0) {
+        $income[] = ['account_name' => 'Net Loss', 'amount' => abs($pl_data['net_profit'])];
     }
     
     $max_rows = max(count($expenses), count($income));
     
-    // Data rows
     for ($i = 0; $i < $max_rows; $i++) {
         echo '<tr>';
         
         // Expenses (Left side)
         if ($i < count($expenses)) {
-            echo '<td style="border:1px solid black; width:25%;">' . htmlspecialchars($expenses[$i]['account_name']) . '</td>';
-            echo '<td style="border:1px solid black; text-align:right; width:25%;">' . number_format($expenses[$i]['amount'], 2) . '</td>';
+            echo '<td style="border:1px solid black;">' . htmlspecialchars($expenses[$i]['account_name']) . '</td>';
+            echo '<td style="border:1px solid black; text-align:right;">' . number_format($expenses[$i]['amount'], 2) . '</td>';
         } else {
-            echo '<td style="border:1px solid black; width:25%;">&nbsp;</td>';
-            echo '<td style="border:1px solid black; width:25%;">&nbsp;</td>';
+            echo '<td style="border:1px solid black;">&nbsp;</td>';
+            echo '<td style="border:1px solid black;">&nbsp;</td>';
         }
         
         // Income (Right side)
         if ($i < count($income)) {
-            echo '<td style="border:1px solid black; width:25%;">' . htmlspecialchars($income[$i]['account_name']) . '</td>';
-            echo '<td style="border:1px solid black; text-align:right; width:25%;">' . number_format($income[$i]['amount'], 2) . '</td>';
+            echo '<td style="border:1px solid black;">' . htmlspecialchars($income[$i]['account_name']) . '</td>';
+            echo '<td style="border:1px solid black; text-align:right;">' . number_format($income[$i]['amount'], 2) . '</td>';
         } else {
-            echo '<td style="border:1px solid black; width:25%;">&nbsp;</td>';
-            echo '<td style="border:1px solid black; width:25%;">&nbsp;</td>';
+            echo '<td style="border:1px solid black;">&nbsp;</td>';
+            echo '<td style="border:1px solid black;">&nbsp;</td>';
         }
         
         echo '</tr>';
@@ -226,27 +202,13 @@ if ($export_format == 'excel' && $pl_data) {
     
     // Total row
     echo '<tr>';
-    echo '<td style="border:1px solid black; font-weight:bold; text-align:center; width:25%;">Total</td>';
-    echo '<td style="border:1px solid black; font-weight:bold; text-align:right; width:25%;">' . number_format($pl_data['total_expenses'] + max(0, $pl_data['net_profit']), 2) . '</td>';
-    echo '<td style="border:1px solid black; font-weight:bold; text-align:center; width:25%;">Total</td>';
-    echo '<td style="border:1px solid black; font-weight:bold; text-align:right; width:25%;">' . number_format($pl_data['total_income'] + abs(min(0, $pl_data['net_profit'])), 2) . '</td>';
+    echo '<td style="border:1px solid black; font-weight:bold; text-align:center;">Total</td>';
+    echo '<td style="border:1px solid black; font-weight:bold; text-align:right;">' . number_format($pl_data['total_expenses'] + max(0, $pl_data['net_profit']), 2) . '</td>';
+    echo '<td style="border:1px solid black; font-weight:bold; text-align:center;">Total</td>';
+    echo '<td style="border:1px solid black; font-weight:bold; text-align:right;">' . number_format($pl_data['total_income'] + abs(min(0, $pl_data['net_profit'])), 2) . '</td>';
     echo '</tr>';
     
     echo '</table>';
-    
-    // Footer
-    echo '<br><br>';
-    echo '<table width="100%">';
-    echo '<tr>';
-    echo '<td style="width:50%;">Place: Irinjalakuda</td>';
-    echo '<td style="width:50%; text-align:right;">As per our report even date attached</td>';
-    echo '</tr>';
-    echo '<tr>';
-    echo '<td>Date: ' . date('d/m/Y') . '</td>';
-    echo '<td>&nbsp;</td>';
-    echo '</tr>';
-    echo '</table>';
-    
     echo '</body>';
     echo '</html>';
     exit;
@@ -261,13 +223,6 @@ ob_end_flush();
     background: #f8f9fa;
     min-height: 100vh;
     padding: 20px 0;
-}
-
-.filter-card {
-    background: white;
-    border-radius: 10px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    margin-bottom: 20px;
 }
 
 .pl-card {
@@ -333,10 +288,6 @@ ob_end_flush();
         background: white;
         padding: 0;
     }
-    
-    .filter-card {
-        display: none;
-    }
 }
 </style>
 
@@ -351,87 +302,42 @@ ob_end_flush();
             </div>
         </div>
 
-        <!-- Filter Card -->
-        <div class="filter-card no-print">
-            <div class="card-body">
-                <h5 class="card-title mb-3">Filter Options</h5>
-                
-                <!-- Date Selection Form -->
-                <form method="GET" id="plForm">
-                    <div class="row align-items-end">
-                        <div class="col-md-3">
-                            <label class="form-label">Start Date</label>
-                            <input type="date" name="start_date" class="form-control" 
-                                   value="<?php echo htmlspecialchars($start_date); ?>" required>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">End Date</label>
-                            <input type="date" name="end_date" class="form-control" 
-                                   value="<?php echo htmlspecialchars($end_date); ?>" required>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">&nbsp;</label>
-                            <div class="d-grid">
-                                <button type="submit" class="btn btn-primary">
-                                    <i class="fa fa-search"></i> Generate Report
-                                </button>
-                            </div>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">&nbsp;</label>
-                            <div class="btn-group d-grid" role="group">
-                                <?php if ($pl_data && !$errorMessage): ?>
-                                <a href="?start_date=<?php echo urlencode($start_date); ?>&end_date=<?php echo urlencode($end_date); ?>&export=pdf" 
-                                   class="btn btn-danger">
-                                    <i class="fa fa-file-pdf"></i> PDF
-                                </a>
-                                <a href="?start_date=<?php echo urlencode($start_date); ?>&end_date=<?php echo urlencode($end_date); ?>&export=excel" 
-                                   class="btn btn-success">
-                                    <i class="fa fa-file-excel"></i> Excel
-                                </a>
-                                <?php else: ?>
-                                <button type="button" class="btn btn-secondary" disabled>
-                                    <i class="fa fa-file-pdf"></i> PDF
-                                </button>
-                                <button type="button" class="btn btn-secondary" disabled>
-                                    <i class="fa fa-file-excel"></i> Excel
-                                </button>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Quick Date Filters -->
-                    <div class="row mt-3">
-                        <div class="col-12">
-                            <div class="btn-group btn-group-sm" role="group">
-                                <button type="button" class="btn btn-outline-secondary" onclick="setDateRange('today')">Today</button>
-                                <button type="button" class="btn btn-outline-secondary" onclick="setDateRange('thisMonth')">This Month</button>
-                                <button type="button" class="btn btn-outline-secondary" onclick="setDateRange('lastMonth')">Last Month</button>
-                                <button type="button" class="btn btn-outline-secondary" onclick="setDateRange('thisYear')">This Year</button>
-                                <button type="button" class="btn btn-outline-secondary" onclick="setDateRange('lastYear')">Last Year</button>
-                            </div>
-                        </div>
-                    </div>
-                </form>
-            </div>
-        </div>
+        <!-- Filter Component -->
+        <?php
+        $filterConfig = [
+            'show_financial_periods' => true,
+            'show_quick_dates' => true,
+            'show_export_buttons' => true,
+            'submit_button_text' => 'Generate P&L Report',
+            'submit_button_icon' => 'fa-chart-line',
+            'export_formats' => ['pdf', 'excel']
+        ];
+        echo renderAccountingFilters($filterConfig);
+        ?>
 
         <!-- Error Message -->
-        <?php if ($errorMessage): ?>
+        <?php if ($filterParams['error_message']): ?>
         <div class="alert alert-danger" role="alert">
-            <i class="fa fa-exclamation-triangle"></i> <?php echo htmlspecialchars($errorMessage); ?>
+            <i class="fa fa-exclamation-triangle"></i> <?php echo htmlspecialchars($filterParams['error_message']); ?>
         </div>
         <?php endif; ?>
 
         <!-- P&L Report -->
-        <?php if ($pl_data && !$errorMessage): ?>
+        <?php if ($pl_data && !$filterParams['error_message']): ?>
         <div class="pl-card">
             <div class="pl-header">
                 <h4 class="mb-0">
                     <i class="fas fa-chart-line me-2"></i>Profit & Loss Account
                 </h4>
-                <p class="mb-0">For the period from <?php echo date('d/m/Y', strtotime($start_date)); ?> to <?php echo date('d/m/Y', strtotime($end_date)); ?></p>
+                <?php if ($filterParams['period_info']): ?>
+                <p class="mb-0">For <?php echo htmlspecialchars($filterParams['period_info']['period_name']); ?></p>
+                <p class="mb-0 small">(<?php echo date('d/m/Y', strtotime($filterParams['start_date'])); ?> to <?php echo date('d/m/Y', strtotime($filterParams['end_date'])); ?>)</p>
+                <?php if ($filterParams['period_info']['is_closed']): ?>
+                <p class="mb-0 small"><span class="badge bg-secondary">Period Closed</span></p>
+                <?php endif; ?>
+                <?php else: ?>
+                <p class="mb-0">For the period from <?php echo date('d/m/Y', strtotime($filterParams['start_date'])); ?> to <?php echo date('d/m/Y', strtotime($filterParams['end_date'])); ?></p>
+                <?php endif; ?>
             </div>
             
             <div class="card-body">
@@ -556,74 +462,39 @@ ob_end_flush();
                         </tbody>
                     </table>
                 </div>
+
+                <!-- Period Information -->
+                <?php if ($filterParams['period_info']): ?>
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <div class="alert alert-info">
+                            <h6><i class="fa fa-info-circle"></i> Financial Period Information</h6>
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <strong>Period:</strong> <?php echo htmlspecialchars($filterParams['period_info']['period_name']); ?>
+                                </div>
+                                <div class="col-md-3">
+                                    <strong>Duration:</strong> <?php echo date('M d, Y', strtotime($filterParams['start_date'])); ?> - <?php echo date('M d, Y', strtotime($filterParams['end_date'])); ?>
+                                </div>
+                                <div class="col-md-3">
+                                    <strong>Status:</strong> 
+                                    <span class="badge bg-<?php echo $filterParams['period_info']['is_closed'] ? 'secondary' : 'success'; ?>">
+                                        <?php echo $filterParams['period_info']['is_closed'] ? 'Closed' : 'Open'; ?>
+                                    </span>
+                                </div>
+                                <div class="col-md-3">
+                                    <strong>Days:</strong> <?php echo round((strtotime($filterParams['end_date']) - strtotime($filterParams['start_date'])) / (60*60*24)) + 1; ?> days
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <?php endif; ?>
             </div>
         </div>
         <?php endif; ?>
 
     </div>
 </div>
-
-<script>
-// Quick date range functions
-function setDateRange(range) {
-    const startDate = document.querySelector('input[name="start_date"]');
-    const endDate = document.querySelector('input[name="end_date"]');
-    const today = new Date();
-    
-    switch(range) {
-        case 'today':
-            const todayStr = today.toISOString().split('T')[0];
-            startDate.value = todayStr;
-            endDate.value = todayStr;
-            break;
-            
-        case 'thisMonth':
-            const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-            const thisMonthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-            startDate.value = thisMonthStart.toISOString().split('T')[0];
-            endDate.value = thisMonthEnd.toISOString().split('T')[0];
-            break;
-            
-        case 'lastMonth':
-            const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-            const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
-            startDate.value = lastMonthStart.toISOString().split('T')[0];
-            endDate.value = lastMonthEnd.toISOString().split('T')[0];
-            break;
-            
-        case 'thisYear':
-            const thisYearStart = new Date(today.getFullYear(), 0, 1);
-            const thisYearEnd = new Date(today.getFullYear(), 11, 31);
-            startDate.value = thisYearStart.toISOString().split('T')[0];
-            endDate.value = thisYearEnd.toISOString().split('T')[0];
-            break;
-            
-        case 'lastYear':
-            const lastYearStart = new Date(today.getFullYear() - 1, 0, 1);
-            const lastYearEnd = new Date(today.getFullYear() - 1, 11, 31);
-            startDate.value = lastYearStart.toISOString().split('T')[0];
-            endDate.value = lastYearEnd.toISOString().split('T')[0];
-            break;
-    }
-}
-
-// Form validation
-document.getElementById('plForm').addEventListener('submit', function(e) {
-    const startDate = document.querySelector('input[name="start_date"]').value;
-    const endDate = document.querySelector('input[name="end_date"]').value;
-    
-    if (!startDate || !endDate) {
-        e.preventDefault();
-        alert('Please select both start and end dates.');
-        return false;
-    }
-    
-    if (new Date(startDate) > new Date(endDate)) {
-        e.preventDefault();
-        alert('Start date cannot be later than end date.');
-        return false;
-    }
-});
-</script>
 
 <?php include_once "inc/footer.php"; ?>
