@@ -11,6 +11,12 @@ $balanceSheetManager = new BalanceSheetManager();
 
 // Get filter parameters using the common component
 $filterParams = getAccountingFilterParams();
+
+// FOR BALANCE SHEET: Always set start_date = end_date to avoid validation issues
+if ($filterParams['filter_type'] == 'date_range' && !empty($filterParams['end_date'])) {
+    $filterParams['start_date'] = $filterParams['end_date'];
+}
+
 $balance_sheet_data = null;
 
 // For Balance Sheet, we use the end date (as of date)
@@ -346,8 +352,9 @@ ob_end_flush();
         <!-- Filter Component -->
         <?php
         $filterConfig = [
+            'show_quick_dates' => true,
+            'hide_start_date' => true,  // Add this new option
             'show_financial_periods' => true,
-            'show_quick_dates' => false, // Balance sheet typically uses specific end dates
             'show_export_buttons' => true,
             'submit_button_text' => 'Generate Balance Sheet',
             'submit_button_icon' => 'fa-balance-scale',

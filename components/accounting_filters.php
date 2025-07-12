@@ -23,6 +23,7 @@ function renderAccountingFilters($config = []) {
         'submit_button_icon' => 'fa-search',
         'export_formats' => ['pdf', 'excel'],
         'additional_fields' => [],
+        'hide_start_date' => false,
         'css_classes' => [
             'container' => 'filter-card no-print',
             'card_body' => 'card-body',
@@ -83,11 +84,13 @@ function renderAccountingFilters($config = []) {
                 <!-- Date Range Filters -->
                 <div class="row mt-3" id="dateFilters" 
                      style="<?php echo ($filterType == 'financial_period') ? 'display:none' : ''; ?>">
-                    <div class="col-md-3">
-                        <label class="form-label">Start Date</label>
-                        <input type="date" name="start_date" class="form-control" 
-                               value="<?php echo htmlspecialchars($startDate); ?>">
-                    </div>
+                     <?php if (!$config['hide_start_date']): ?>
+                        <div class="col-md-3">
+                            <label class="form-label">Start Date</label>
+                            <input type="date" name="start_date" class="form-control" 
+                                value="<?php echo htmlspecialchars($startDate); ?>">
+                        </div>
+                    <?php endif; ?>
                     <div class="col-md-3">
                         <label class="form-label">End Date</label>
                         <input type="date" name="end_date" class="form-control" 
@@ -267,35 +270,45 @@ function renderAccountingFilters($config = []) {
         switch(range) {
             case 'today':
                 const todayStr = today.toISOString().split('T')[0];
-                startDate.value = todayStr;
+                if(startDate) {
+                    startDate.value = todayStr;
+                }
                 endDate.value = todayStr;
                 break;
                 
             case 'thisMonth':
                 const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
                 const thisMonthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-                startDate.value = thisMonthStart.toISOString().split('T')[0];
+                if(startDate) {
+                    startDate.value = thisMonthStart.toISOString().split('T')[0];
+                }
                 endDate.value = thisMonthEnd.toISOString().split('T')[0];
                 break;
                 
             case 'lastMonth':
                 const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
                 const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
-                startDate.value = lastMonthStart.toISOString().split('T')[0];
+                if(startDate) {
+                    startDate.value = lastMonthStart.toISOString().split('T')[0];
+                }
                 endDate.value = lastMonthEnd.toISOString().split('T')[0];
                 break;
                 
             case 'thisYear':
                 const thisYearStart = new Date(today.getFullYear(), 0, 1);
                 const thisYearEnd = new Date(today.getFullYear(), 11, 31);
-                startDate.value = thisYearStart.toISOString().split('T')[0];
+                if(startDate) {
+                    startDate.value = thisYearStart.toISOString().split('T')[0];
+                }
                 endDate.value = thisYearEnd.toISOString().split('T')[0];
                 break;
                 
             case 'lastYear':
                 const lastYearStart = new Date(today.getFullYear() - 1, 0, 1);
                 const lastYearEnd = new Date(today.getFullYear() - 1, 11, 31);
-                startDate.value = lastYearStart.toISOString().split('T')[0];
+                if(startDate) {
+                    startDate.value = lastYearStart.toISOString().split('T')[0];
+                }
                 endDate.value = lastYearEnd.toISOString().split('T')[0];
                 break;
                 
@@ -312,7 +325,9 @@ function renderAccountingFilters($config = []) {
                     fyEnd = new Date(today.getFullYear(), 2, 31); // Mar 31 this year
                 }
                 
-                startDate.value = fyStart.toISOString().split('T')[0];
+                if(startDate) {
+                    startDate.value = fyStart.toISOString().split('T')[0];
+                }
                 endDate.value = fyEnd.toISOString().split('T')[0];
                 break;
         }
@@ -328,6 +343,7 @@ function renderAccountingFilters($config = []) {
  * Returns standardized filter data for use in accounting modules
  */
 function getAccountingFilterParams() {
+    $isBalanceSheet = (basename($_SERVER['PHP_SELF']) == 'balance_sheet.php');
     $filterType = isset($_REQUEST['filter_type']) ? $_REQUEST['filter_type'] : 'date_range';
     $startDate = '';
     $endDate = '';
@@ -357,6 +373,11 @@ function getAccountingFilterParams() {
         $startDate = isset($_REQUEST['start_date']) ? $_REQUEST['start_date'] : '';
         $endDate = isset($_REQUEST['end_date']) ? $_REQUEST['end_date'] : '';
         
+        // FOR BALANCE SHEET: If only end_date is provided, use it and set start_date to avoid defaults
+        if ($isBalanceSheet && empty($startDate) && !empty($endDate)) {
+            $startDate = $endDate;
+        }
+        
         if (empty($startDate) || empty($endDate)) {
             // Set defaults
             $startDate = date('Y-m-01');
@@ -366,6 +387,18 @@ function getAccountingFilterParams() {
         if (strtotime($startDate) > strtotime($endDate)) {
             $errorMessage = "Start date cannot be later than end date.";
         }
+    }
+
+    if ($isBalanceSheet) {
+        echo "<div style='background: yellow; padding: 10px;'>
+        DEBUG: Balance Sheet Filter<br>
+        Start Date: '$startDate'<br>
+        End Date: '$endDate'<br>
+        Error Message: '$errorMessage'<br>
+        Start Date Empty: " . (empty($startDate) ? 'YES' : 'NO') . "<br>
+        End Date Empty: " . (empty($endDate) ? 'YES' : 'NO') . "<br>
+        Start > End: " . (strtotime($startDate) > strtotime($endDate) ? 'YES' : 'NO') . "
+        </div>";
     }
     
     return [

@@ -39,20 +39,25 @@ class BalanceSheetManager {
                                     COALESCE(SUM(td.credit), 0) - COALESCE(SUM(td.debit), 0)
                                 ELSE 0
                             END as balance
-                          FROM tbl_accounts a
-                          LEFT JOIN tbl_transaction_details td ON a.id = td.account_id
-                          LEFT JOIN tbl_transactions t ON td.transaction_id = t.id
-                            AND t.transaction_date <= '$as_of_date'
+                        FROM tbl_accounts a
+                        LEFT JOIN tbl_transaction_details td ON a.id = td.account_id
+                        LEFT JOIN tbl_transactions t ON td.transaction_id = t.id
+                        WHERE a.account_type IN ('Asset', 'Liability', 'Equity')
+                        AND a.is_active = TRUE
+                        AND (
+                            t.transaction_date IS NULL 
+                            OR (
+                            t.transaction_date <= '$as_of_date'
                             AND t.status = 'Posted'
                             AND t.description NOT LIKE '%year-end closing%'
                             AND t.description NOT LIKE '%Year-end closing%'
                             AND t.description NOT LIKE '%Close Income%'
                             AND t.description NOT LIKE '%Close Expenses%'
                             AND t.reference_no NOT LIKE 'YE-%'
-                          WHERE a.account_type IN ('Asset', 'Liability', 'Equity')
-                          AND a.is_active = TRUE
-                          GROUP BY a.id, a.account_code, a.account_name, a.account_type
-                          ORDER BY a.account_type, a.account_code";
+                            )
+                        )
+                        GROUP BY a.id, a.account_code, a.account_name, a.account_type
+                        ORDER BY a.account_type, a.account_code";
 
         $result = $this->db->select($accounts_query);
         
@@ -137,33 +142,38 @@ class BalanceSheetManager {
         
         // Get Income and Expense totals up to the date (excluding year-end closing)
         $pl_query = "SELECT 
-                       a.account_type,
-                       a.account_name,
-                       a.account_code,
-                       COALESCE(SUM(td.debit), 0) as total_debit,
-                       COALESCE(SUM(td.credit), 0) as total_credit,
-                       CASE 
-                           WHEN a.account_type = 'Income' THEN 
-                               COALESCE(SUM(td.credit), 0) - COALESCE(SUM(td.debit), 0)
-                           WHEN a.account_type = 'Expense' THEN 
-                               COALESCE(SUM(td.debit), 0) - COALESCE(SUM(td.credit), 0)
-                           ELSE 0
-                       END as net_amount
-                     FROM tbl_accounts a
-                     LEFT JOIN tbl_transaction_details td ON a.id = td.account_id
-                     LEFT JOIN tbl_transactions t ON td.transaction_id = t.id
-                       AND t.transaction_date <= '$as_of_date'
-                       AND t.status = 'Posted'
-                       AND t.description NOT LIKE '%year-end closing%'
-                       AND t.description NOT LIKE '%Year-end closing%'
-                       AND t.description NOT LIKE '%Close Income%'
-                       AND t.description NOT LIKE '%Close Expenses%'
-                       AND t.reference_no NOT LIKE 'YE-%'
-                     WHERE a.account_type IN ('Income', 'Expense')
-                     AND a.is_active = TRUE
-                     GROUP BY a.id, a.account_type, a.account_name, a.account_code
-                     HAVING net_amount != 0
-                     ORDER BY a.account_type, a.account_code";
+               a.account_type,
+               a.account_name,
+               a.account_code,
+               COALESCE(SUM(td.debit), 0) as total_debit,
+               COALESCE(SUM(td.credit), 0) as total_credit,
+               CASE 
+                   WHEN a.account_type = 'Income' THEN 
+                       COALESCE(SUM(td.credit), 0) - COALESCE(SUM(td.debit), 0)
+                   WHEN a.account_type = 'Expense' THEN 
+                       COALESCE(SUM(td.debit), 0) - COALESCE(SUM(td.credit), 0)
+                   ELSE 0
+               END as net_amount
+             FROM tbl_accounts a
+             LEFT JOIN tbl_transaction_details td ON a.id = td.account_id
+             LEFT JOIN tbl_transactions t ON td.transaction_id = t.id
+             WHERE a.account_type IN ('Income', 'Expense')
+             AND a.is_active = TRUE
+             AND (
+               t.transaction_date IS NULL 
+               OR (
+                 t.transaction_date <= '$as_of_date'
+                 AND t.status = 'Posted'
+                 AND t.description NOT LIKE '%year-end closing%'
+                 AND t.description NOT LIKE '%Year-end closing%'
+                 AND t.description NOT LIKE '%Close Income%'
+                 AND t.description NOT LIKE '%Close Expenses%'
+                 AND t.reference_no NOT LIKE 'YE-%'
+               )
+             )
+             GROUP BY a.id, a.account_type, a.account_name, a.account_code
+             HAVING net_amount != 0
+             ORDER BY a.account_type, a.account_code";
         
         $result = $this->db->select($pl_query);
         
