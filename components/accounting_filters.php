@@ -389,17 +389,17 @@ function getAccountingFilterParams() {
         }
     }
 
-    if ($isBalanceSheet) {
-        echo "<div style='background: yellow; padding: 10px;'>
-        DEBUG: Balance Sheet Filter<br>
-        Start Date: '$startDate'<br>
-        End Date: '$endDate'<br>
-        Error Message: '$errorMessage'<br>
-        Start Date Empty: " . (empty($startDate) ? 'YES' : 'NO') . "<br>
-        End Date Empty: " . (empty($endDate) ? 'YES' : 'NO') . "<br>
-        Start > End: " . (strtotime($startDate) > strtotime($endDate) ? 'YES' : 'NO') . "
-        </div>";
-    }
+    // if ($isBalanceSheet) {
+    //     echo "<div style='background: yellow; padding: 10px;'>
+    //     DEBUG: Balance Sheet Filter<br>
+    //     Start Date: '$startDate'<br>
+    //     End Date: '$endDate'<br>
+    //     Error Message: '$errorMessage'<br>
+    //     Start Date Empty: " . (empty($startDate) ? 'YES' : 'NO') . "<br>
+    //     End Date Empty: " . (empty($endDate) ? 'YES' : 'NO') . "<br>
+    //     Start > End: " . (strtotime($startDate) > strtotime($endDate) ? 'YES' : 'NO') . "
+    //     </div>";
+    // }
     
     return [
         'filter_type' => $filterType,
